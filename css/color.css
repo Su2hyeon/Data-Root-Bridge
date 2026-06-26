@@ -1,0 +1,92 @@
+/* Color and visual tuning variables */
+:root {
+    /* stage 1 / clean */
+    --bg-stage-1: #f8f8f8;
+    --text-stage-1: #998474;
+    --globe-stage-1: #bed08cdc;
+    --root-stage-1: #8bc6f4;
+    --root-intervention-stage-1: #bed08c88;
+    --root-recovery-stage-1: #4fa5df;
+
+    /* stage 2 */
+    --bg-stage-2: #F5F5F5;
+    --text-stage-2: #998474;
+    --globe-stage-2: #b7c19dc4;
+    --root-stage-2: #b2d8f5da;
+    --root-intervention-stage-2: #c5d695dc;
+    --root-recovery-stage-2: #78b5db;
+
+    /* stage 3 / normal */
+    --bg-stage-3: #F5F5F5;
+    --text-stage-3: #79c2f9;
+    --globe-stage-3: #78604edd;
+    --root-stage-3: #959595;
+    --root-intervention-stage-3: #78604e61;
+    --root-recovery-stage-3: #666666;
+
+    /* stage 4 */
+    --bg-stage-4: #989695;
+    --text-stage-4: #d7eeff;
+    --globe-stage-4: #a09893;
+    --root-stage-4: #d7eeff;
+    --root-intervention-stage-4: #fecfd2;
+    --root-recovery-stage-4: #9ac9e8;
+
+    /* stage 5 / stress */
+    --bg-stage-5: #39332d;
+    --text-stage-5: #ff628c;
+    --globe-stage-5: #dadadaec;
+    --root-stage-5: #7ec7ff;
+    --root-intervention-stage-5: #dadada5d;
+    --root-recovery-stage-5: #469fe2;
+
+    
+
+    /* pixel mode block colors */
+    --pixel-root-stage-1: #d7e8f6;
+    --pixel-root-stage-2: #d7e8f6;
+    --pixel-root-stage-3: #e8e8e8;
+    --pixel-root-stage-4: #e8e8e8;
+    --pixel-root-stage-5: #b8d7ed;
+
+    /* pixel mode number colors */
+    --pixel-number-stage-1: #F5F5F5;
+    --pixel-number-stage-2: #F5F5F5;
+    --pixel-number-stage-3: #78604eb1;
+    --pixel-number-stage-4: #78604eb1;
+    --pixel-number-stage-5: #818181;
+
+    --intervention-line-active-opacity: 0.8;
+    --intervention-line-trace-opacity: 0.5;
+    --intervention-node-active-opacity: 0.88;
+    --intervention-node-trace-opacity: 0.5;
+    --intervention-support-active-opacity: 0.74;
+    --intervention-support-trace-opacity: 0.5;
+    --intervention-aged-line-active-opacity: 0.92;
+    --intervention-aged-line-trace-opacity: 0.4;
+    --intervention-aged-node-active-opacity: 0.94;
+    --intervention-aged-node-trace-opacity: 0.4;
+    --intervention-aged-support-active-opacity: 0.8;
+    --intervention-aged-support-trace-opacity: 0.25;
+
+    --bg-white: var(--bg-stage-3);
+    --panel-bg: transparent;
+    --border-color: rgba(121, 194, 249, 0.22);
+    --text-main: var(--text-stage-3);
+    --text-dark: var(--text-stage-3);
+    --muted: var(--text-stage-3);
+    --globe-brown: var(--globe-stage-3);
+    --root-fresh-color: var(--root-stage-3);
+    --root-fresh-dark-color: var(--root-stage-3);
+    --root-aged-color: var(--root-stage-3);
+    --root-aged-dark-color: var(--root-stage-3);
+    --root-intervention-color: var(--root-intervention-stage-3);
+    --root-intervention-old-color: var(--root-stage-3);
+    --root-recovery-color: var(--root-recovery-stage-3);
+    --root-recovery-old-color: var(--root-stage-3);
+    --pixel-root-color: var(--pixel-root-stage-3);
+    --pixel-number-color: var(--pixel-number-stage-3);
+    --pixel-anchor-color: color-mix(in srgb, var(--pixel-root-color) 60%, black);
+    --anchor-root-color: color-mix(in srgb, var(--root-fresh-color) 60%, black);
+    --bridge-start-y: 0.43;
+}

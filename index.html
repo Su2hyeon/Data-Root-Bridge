@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Root Bridge</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="css/color.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app-wrapper">
+    <div id="main-container">
+        
+        <div class="top-ui-wrapper">
+            <div class="section-title">Data Root Bridge</div>
+            
+            <div id="data-monitor">
+                <div class="monitor-row"><span>Target</span><span>Space</span><span id="txt-loc" class="val"><span>Weimar,</span><span>Germany</span></span></div>
+                <div class="monitor-row"><span>Selected</span><span>Month</span><span>Year</span><span id="txt-selected-year" class="val"><span>June</span><span>2026</span></span></div>
+                <div class="monitor-row"><span>Air</span><span>Temperature</span><span id="txt-air" class="val">--</span></div>
+                <div class="monitor-row"><span>Fine</span><span>Dust</span><span id="txt-pm25" class="val">--</span></div>
+                <div class="monitor-row"><span>Soil</span><span>Temperature</span><span id="txt-soil" class="val">--</span></div>
+                <div class="monitor-row"><span>Soil</span><span>Moisture</span><span id="txt-moist" class="val">--</span></div>
+                <div class="monitor-row"><span>Coarse</span><span>Dust</span><span id="txt-pm10" class="val">--</span></div>
+                <div class="monitor-row"><span>Human</span><span>CO2e</span><span id="txt-human-co2" class="val">--</span></div>
+                <div class="monitor-row"><span>Plastic</span><span>Waste</span><span id="txt-plastic" class="val">--</span></div>
+            </div>
+        </div>
+
+        <div class="bottom-ui-wrapper">
+            
+            <div class="lifestyle-container">
+                <div class="intervention-title">Human Intervention</div>
+                <div class="counter-group">
+                    <div class="counter-info"><span class="counter-title">Combustion Transport</span></div>
+                    <div class="counter-controls">
+                        <button type="button" class="cnt-btn" data-type="transport" data-delta="-1">−</button>
+                        <span class="cnt-value" id="val-transport">0</span>
+                        <button type="button" class="cnt-btn" data-type="transport" data-delta="1">+</button>
+                    </div>
+                </div>
+                <div class="counter-group">
+                    <div class="counter-info"><span class="counter-title">Artificial Heating / Cooling</span></div>
+                    <div class="counter-controls">
+                        <button type="button" class="cnt-btn" data-type="climate" data-delta="-1">−</button>
+                        <span class="cnt-value" id="val-climate">0</span>
+                        <button type="button" class="cnt-btn" data-type="climate" data-delta="1">+</button>
+                    </div>
+                </div>
+                <div class="counter-group">
+                    <div class="counter-info"><span class="counter-title">New Clothing / Goods</span></div>
+                    <div class="counter-controls">
+                        <button type="button" class="cnt-btn" data-type="shopping" data-delta="-1">−</button>
+                        <span class="cnt-value" id="val-shopping">0</span>
+                        <button type="button" class="cnt-btn" data-type="shopping" data-delta="1">+</button>
+                    </div>
+                </div>
+                <div class="counter-group">
+                    <div class="counter-info"><span class="counter-title">Plastic Food Delivery</span></div>
+                    <div class="counter-controls">
+                        <button type="button" class="cnt-btn" data-type="delivery" data-delta="-1">−</button>
+                        <span class="cnt-value" id="val-delivery">0</span>
+                        <button type="button" class="cnt-btn" data-type="delivery" data-delta="1">+</button>
+                    </div>
+                </div>
+                <div class="counter-group">
+                    <div class="counter-info"><span class="counter-title">Digital Streaming</span></div>
+                    <div class="counter-controls">
+                        <button type="button" class="cnt-btn" data-type="streaming" data-delta="-1">−</button>
+                        <span class="cnt-value" id="val-streaming">0</span>
+                        <button type="button" class="cnt-btn" data-type="streaming" data-delta="1">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <button type="button" id="map-toggle" title="Open world map" aria-label="Open world map">
+                <span class="globe-shape"></span>
+            </button>
+
+            <div class="right-controls-wrapper">
+                <div class="control-group pollution-control">
+                    <label class="control-label">Pollution Value</label>
+                    <input type="range" id="param-pollution" class="slider" min="-8" max="8" step="1" value="0">
+                    <div class="slider-ticks pollution-ticks"><span>Clean</span><span>0</span><span>Pollution</span></div>
+                </div>
+
+                <div class="control-group timeline-control">
+                    <label class="control-label">Time Horizon</label>
+                    <input type="range" id="param-time" class="slider" min="2000" max="2026" step="1" value="2026">
+                    <div class="slider-ticks"><span>2000</span><span>2008</span><span>2016</span><span>2026</span></div>
+                </div>
+
+                <div class="control-group month-control">
+                    <label class="control-label">Target Month</label>
+                    <input type="range" id="param-month" class="slider" min="1" max="12" step="1" value="6">
+                    <div class="slider-ticks"><span>Jan</span><span>Apr</span><span>Aug</span><span>Dec</span></div>
+                </div>
+                
+                <div id="bridge-toolbar">
+                    <div class="toolbar-actions">
+                        <span id="txt-zoom">100%</span>
+                        <button type="button" class="mode-btn active" data-value="auto">AUTO</button>
+                        <button type="button" class="mode-btn" data-value="dense">DENSE</button>
+                        <button type="button" class="mode-btn" data-value="quiet">QUIET</button>
+                        <button type="button" class="mode-btn" id="btn-pixel-form" title="Pixel root form">PIXEL</button>
+                        <button type="button" class="mode-btn" id="btn-pause-growth" title="Pause growth">PAUSE</button>
+                        <button type="button" class="icon-btn" id="btn-clear-bridge" title="Clear bridge">DELETE</button>
+                    </div>
+                </div>
+            </div>
+
+        </div> <div id="right-panel">
+            <div id="map"></div>
+            <div id="root-canvas"></div>
+            <div id="custom-tooltip"></div>
+        </div>
+
+    </div>
+</div>
+
+<script src="js/roots.js"></script>
+<script src="js/info.js"></script>
+<script src="js/form.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
