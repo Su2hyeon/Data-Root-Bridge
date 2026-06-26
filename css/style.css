@@ -682,5 +682,3 @@ body.metrics-ready #data-monitor {
     line-height: 1.4;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
-
-/* 구버전 코드 내부에 꼬여있던 잘못된 전체 화면 미디어 블록 완전 제거 완료 */
