@@ -269,7 +269,9 @@ body.metrics-ready #data-monitor {
     background: transparent;
     cursor: pointer;
     padding: 0;
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 90px;
     height: 90px;
     margin-bottom: -14px;
@@ -498,8 +500,8 @@ body.metrics-ready #data-monitor {
     left: 50%;
     bottom: 155px;
     z-index: 54;
-    width: min(500px, 58vw);
-    height: min(280px, 38vh);
+    width: min(280px, 58vw);
+    height: min(140px, 38vh);
     margin: 0;
     border: 1px solid rgba(120, 96, 78, 0.42);
     border-radius: 0;
@@ -682,3 +684,5 @@ body.metrics-ready #data-monitor {
     line-height: 1.4;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
+
+/* 구버전 코드 내부에 꼬여있던 잘못된 전체 화면 미디어 블록 완전 제거 완료 */
