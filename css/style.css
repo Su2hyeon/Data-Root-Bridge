@@ -469,7 +469,7 @@ body.metrics-ready #data-monitor {
     width: 100vw;
     height: 100vh;
     background: var(--bg-white) !important;
-    z-index: 40;
+    z-index: auto;
     pointer-events: auto;
     transition: background-color 0.35s ease;
 }
@@ -499,7 +499,7 @@ body.metrics-ready #data-monitor {
     position: fixed;
     left: 50%;
     bottom: 155px;
-    z-index: 54;
+    z-index: 80;
     width: min(280px, 58vw);
     height: min(140px, 38vh);
     margin: 0;
