@@ -9,8 +9,9 @@ const OLD_INTERVENTION_COLOR = "#8e969a";
 const RECOVERY_COLOR = "#3f6f64";
 const RECOVERY_OLD_COLOR = "#7b8d88";
 const MAX_RECOVERY_ACTIONS = 180;
-const RECOVERY_BURST_ROOTS = 5;
-const RECOVERY_DISSOLVE_NODES = 6;
+const RECOVERY_BURST_ROOTS = 10;
+const RECOVERY_DISSOLVE_NODES = 12;
+const MAX_SUPPORT_UNDERGROWTH_NODES = 80;
 const EMISSION_FACTORS = {
     transportKmPerUse: 10,
     carKgCo2PerKm: 0.21,
@@ -70,8 +71,7 @@ let metrics = {
     humanPm25Proxy: 0,
     humanPm10Proxy: 0,
     temporalIntervention: 0,
-    lastIntervention: "Monitoring live atmosphere...",
-    sensorSource: "Open-Meteo"
+    lastIntervention: "Monitoring live atmosphere..."
 };
 
 let rootNodes = [];
@@ -85,8 +85,6 @@ let environmentRefreshTimer = null;
 let bridgeRebuildTimer = null;
 let nextNodeId = 0;
 let otuCursor = 0;
-let renderedDataYear = CURRENT_YEAR;
-let cumulativeEmpRows = [];
 let stableBridgeSeedRows = [];
 let locationBridgeRefreshPending = false;
 let draggingAnchor = false;
@@ -296,49 +294,6 @@ function interventionOpacity(kind, active) {
     return cssNumber(`--intervention-${kind}-${active ? "active" : "trace"}-opacity`, active ? 0.9 : 0.12);
 }
 
-function parseHexColor(value, fallback = "#000000") {
-    const raw = String(value || fallback).trim();
-    if(raw.startsWith("rgba") || raw.startsWith("rgb")) {
-        const nums = raw.match(/[\d.]+/g) || [];
-        return {
-            r: Number(nums[0]) || 0,
-            g: Number(nums[1]) || 0,
-            b: Number(nums[2]) || 0,
-            a: nums[3] === undefined ? 1 : Number(nums[3])
-        };
-    }
-    let hex = raw.replace("#", "");
-    if(hex.length === 3 || hex.length === 4) {
-        hex = hex.split("").map(char => char + char).join("");
-    }
-    if(hex.length === 6) hex += "ff";
-    if(hex.length !== 8) return parseHexColor(fallback, "#000000");
-    return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16),
-        a: parseInt(hex.slice(6, 8), 16) / 255
-    };
-}
-
-function mixCssColor(from, to, amount) {
-    const start = parseHexColor(from);
-    const end = parseHexColor(to);
-    const t = clamp(amount, 0, 1);
-    const r = Math.round(start.r + (end.r - start.r) * t);
-    const g = Math.round(start.g + (end.g - start.g) * t);
-    const b = Math.round(start.b + (end.b - start.b) * t);
-    const a = start.a + (end.a - start.a) * t;
-    return a < 0.999 ? `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})` : `rgb(${r}, ${g}, ${b})`;
-}
-
-function setMixedCssVar(target, normal, stressed, amount) {
-    document.documentElement.style.setProperty(
-        target,
-        mixCssColor(cssColor(normal, "#000000"), cssColor(stressed, "#000000"), amount)
-    );
-}
-
 function nextOtu() {
     if(!otuRows.length) return null;
     const row = otuRows[otuCursor % otuRows.length];
@@ -349,12 +304,6 @@ function nextOtu() {
 function taxonomyRank(taxonomy, prefix) {
     const part = String(taxonomy || "").split(";").map(item => item.trim()).find(item => item.startsWith(prefix));
     return part ? part.replace(prefix, "").trim() : "";
-}
-
-function compactTaxon(row, preferredRank = "genus") {
-    if(!row) return "OTU";
-    if(preferredRank === "phylum") return row.phylum ? `p__${row.phylum}` : "UnknownPhylum";
-    return row.genus ? `g__${row.genus}` : (row.family ? `f__${row.family}` : "Unclassified");
 }
 
 function formatPlaceNameFromAddress(address = {}, fallback = "") {
@@ -470,6 +419,23 @@ function getHumanAdjustedMetrics() {
     };
 }
 
+function microbialSeasonActivity() {
+    const adjusted = getHumanAdjustedMetrics();
+    const summerMonth = config.lat >= 0 ? 7 : 1;
+    const seasonalWarmth = (Math.cos(((config.month - summerMonth) / 12) * Math.PI * 2) + 1) * 0.5;
+    const tempSuitability = clamp(1 - Math.abs(adjusted.soilTemp - 24) / 24, 0, 1);
+    const moistureSuitability = clamp(1 - Math.abs(adjusted.soilMoisture - 0.48) / 0.48, 0, 1);
+    return clamp(seasonalWarmth * 0.58 + tempSuitability * 0.28 + moistureSuitability * 0.14, 0, 1);
+}
+
+function seasonalSupportUndergrowthCount() {
+    const activity = microbialSeasonActivity();
+    if(activity < 0.28) return 0;
+    if(activity < 0.55) return 1;
+    if(activity < 0.82) return 2;
+    return 3;
+}
+
 function counterImpactLabel(type) {
     if(type === "transport") {
         const carKg = EMISSION_FACTORS.transportKmPerUse * EMISSION_FACTORS.carKgCo2PerKm;
@@ -564,9 +530,7 @@ function getBridgeGeometry() {
     return {
         leftX, rightX, midY,
         topY: midY - halfWidth,
-        deckY: midY + halfWidth,
-        deckTop: midY - halfWidth * 0.36,
-        deckBottom: midY + halfWidth * 0.36
+        deckY: midY + halfWidth
     };
 }
 
@@ -622,9 +586,11 @@ function syncEmpMetrics() {
     const fallbackRows = empRows.filter(row => row.year >= config.year && row.year <= CURRENT_YEAR).slice(0, 900);
     const baseRows = rangeRows.length ? rangeRows : fallbackRows;
     const localRows = baseRows.filter(row => Number.isFinite(row.lat) && Number.isFinite(row.lon))
-                               .sort((a, b) => distanceToCurrent(a) - distanceToCurrent(b)).slice(0, 260);
+                               .map(row => ({ row, distance: distanceToCurrent(row) }))
+                               .sort((a, b) => a.distance - b.distance)
+                               .slice(0, 260)
+                               .map(item => item.row);
     const selected = localRows.length ? localRows : baseRows.slice(0, 260);
-    cumulativeEmpRows = selected;
     if(locationBridgeRefreshPending || !stableBridgeSeedRows.length || rootNodes.length <= 2) {
         stableBridgeSeedRows = selected;
     }
@@ -633,7 +599,6 @@ function syncEmpMetrics() {
     const avgShannon = mean(selected.map(row => row.shannon));
     const avgOtus = mean(selected.map(row => row.otus));
     const biomeCounts = d3.rollup(selected, g => g.length, row => row.biome);
-    const dominantBiome = Array.from(biomeCounts.entries()).sort((a, b) => b[1] - a[1])[0];
 
     updateBridgeShapeFromYear(selected, avgShannon, avgOtus, avgTemp, biomeCounts);
 
@@ -663,7 +628,6 @@ async function syncSensorCommunity() {
             const p2 = mean(dustRows.slice(0,5).map(r => parseFloat(r.sensordatavalues.find(i=>i.value_type==="P2")?.value)));
             if(p2 !== null) metrics.pm25 = clamp(p2, 0, 150);
             if(p1 !== null) metrics.pm10 = clamp(p1, 0, 230);
-            metrics.sensorSource = "Sensor.Community 10km";
         }
     } catch(e) {}
 }
@@ -673,22 +637,23 @@ async function fetchEnvironmentData() {
 
     await loadEmpRows();
     await loadOtuRows();
-    syncEmpMetrics();
     if(locationBridgeRefreshPending) {
         updateInterventionState();
-        removeHumanActionRoots();
-        removeAllCumulativeData();
+        resetCanvasForLocationChange();
+        syncEmpMetrics();
+        otuCursor = Math.floor(stableRand(`${config.lat.toFixed(3)},${config.lon.toFixed(3)}`, 17) * Math.max(1, otuRows.length));
         seedCumulativeBridge({ baseFrameOnly: true });
         seedInterventionOverlay();
         seedRecoveryRoots();
         locationBridgeRefreshPending = false;
         applyBrightness(false);
     } else if(shouldSeedBridge) {
+        syncEmpMetrics();
         seedCumulativeBridge();
         applyBrightness(false);
+    } else {
+        syncEmpMetrics();
     }
-    updateMetricMonitor();
-    updateGrowthEngine();
 
     const isHist = isHistoricalWeatherSelection();
     const historicalDate = historicalWeatherDateFor(config.year);
@@ -709,6 +674,7 @@ async function fetchEnvironmentData() {
     } catch(e) {}
 
     await syncSensorCommunity();
+    refreshSupportUndergrowthForSeason();
     updateColorState();
     updateMetricMonitor();
     updateGrowthEngine();
@@ -797,7 +763,7 @@ window.addEventListener("resize", resizeCanvas);
 // --- 6. Bridge structure guide rendering ---
 function renderBridgeGuides() {
     guideLayer.selectAll("*").remove();
-    const { leftX, rightX, topY, midY, deckY, deckTop, deckBottom } = getBridgeGeometry();
+    const { leftX, rightX, topY, midY, deckY } = getBridgeGeometry();
     const leftAnchor = rootNodes.find(node => node.layer === "anchorage" && node.side === "left");
     const rightAnchor = rootNodes.find(node => node.layer === "anchorage" && node.side === "right");
     const guideLeftX = leftAnchor ? leftAnchor.x : leftX;
@@ -921,6 +887,7 @@ function connectStructuralNeighbors(node, isIntervened) {
     const candidates = rootNodes
         .filter(other => other.id !== node.id && other.layer !== "anchorage")
         .filter(other => isIntervened || other.side === node.side)
+        .filter(other => Math.abs(other.x - node.x) < radius && Math.abs(other.y - node.y) < radius)
         .map(other => ({ node: other, distance: distanceBetween(node, other) }))
         .filter(item => item.distance > (node.intervention ? 10 : 22) && item.distance < radius)
         .sort((a, b) => a.distance - b.distance)
@@ -970,7 +937,6 @@ function seedCumulativeBridge(options = {}) {
     ageExistingRoots();
     refreshFormMode();
     updateSystemMonitor();
-    renderedDataYear = config.year;
     metrics.lastIntervention = `Displaying the ${config.year} intervention layer over the ${START_YEAR}-${CURRENT_YEAR} stable bridge frame.`;
 }
 
@@ -1379,7 +1345,7 @@ function linkPath(link) {
     const dx = target.x - source.x;
     const interventionSign = stableRand(`${source.id}-${target.id}`, 42) > 0.5 ? 1 : -1;
     const recoveryBend = interventionSign * (4 + stableRand(`${source.id}-${target.id}`, 44) * 8);
-    const bend = recovery ? recoveryBend : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "cross" ? 14 : 34 * metrics.stressLevel));
+    const bend = recovery ? recoveryBend : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "cross" ? 7 : 18 * metrics.stressLevel));
     return `M${source.x},${source.y} C${source.x + dx*0.34},${source.y + bend} ${source.x + dx*0.68},${target.y - bend} ${target.x},${target.y}`;
 }
 
@@ -1495,6 +1461,7 @@ function addSupportRoot(node, seedMode, seedIndex = null) {
     };
     supportRoots.push(support);
     drawSupportRoot(support);
+    growSupportUnderground(support, seedMode);
 }
 
 function drawSupportRoot(support) {
@@ -1509,6 +1476,143 @@ function drawSupportRoot(support) {
     attachLineTooltip(path);
     if(support.intervention && support.activeIntervention) path.raise();
     else path.lower();
+}
+
+function supportUnderDataRow(seedKey, index) {
+    if(!stableBridgeSeedRows.length) return null;
+    const locationKey = `${config.lat.toFixed(3)},${config.lon.toFixed(3)},${config.year},${config.month}`;
+    const pick = Math.floor(stableRand(`${locationKey}-${seedKey}-${index}`, 29) * stableBridgeSeedRows.length);
+    return stableBridgeSeedRows[pick] || null;
+}
+
+function removeSupportUndergrowth() {
+    const removedNodes = new Set(rootNodes.filter(node => node.seedMode === "support-under"));
+    removeNodesFromCanvas(removedNodes);
+    supportRoots = supportRoots.filter(support => !support.supportUnder && !support.seasonalBaseSupport);
+    supportLayer.selectAll(".edge-support-root")
+        .filter(d => d && (d.supportUnder || d.seasonalBaseSupport))
+        .remove();
+}
+
+function seasonalSupportTargetFor(node, seedKey) {
+    const margin = 100 + stableRand(seedKey, 72) * 120;
+    return {
+        x: clamp(node.x + (stableRand(seedKey, 73) - 0.5) * width * 0.3, -margin, width + margin),
+        y: height + margin
+    };
+}
+
+function seasonalSupportSourceNodes(activity) {
+    const targetCount = activity < 0.28 ? 0 : activity < 0.55 ? 2 : activity < 0.82 ? 4 : 6;
+    if(!targetCount) return [];
+    return ["left", "right"].flatMap(side => {
+        const anchor = rootNodes.find(node => node.layer === "anchorage" && node.side === side);
+        if(!anchor) return [];
+        return rootNodes
+            .filter(node =>
+                node.layer !== "anchorage" &&
+                !node.intervention &&
+                !node.recovery &&
+                node.side === side &&
+                node.y > anchor.y + 18
+            )
+            .sort((a, b) => b.y - a.y)
+            .slice(0, Math.ceil(targetCount / 2));
+    }).slice(0, targetCount);
+}
+
+function seedSeasonalBaseSupports(activity) {
+    seasonalSupportSourceNodes(activity).forEach((node, index) => {
+        const seedKey = `seasonal-support-${config.lat.toFixed(3)}-${config.lon.toFixed(3)}-${config.month}-${node.id}-${index}`;
+        const support = {
+            source: node,
+            target: seasonalSupportTargetFor(node, seedKey),
+            seedKey,
+            intervention: false,
+            activeIntervention: false,
+            recovery: false,
+            seasonalBaseSupport: true
+        };
+        supportRoots.push(support);
+        drawSupportRoot(support);
+    });
+}
+
+function refreshSupportUndergrowthForSeason() {
+    removeSupportUndergrowth();
+    const activity = microbialSeasonActivity();
+    seedSeasonalBaseSupports(activity);
+    const baseSupports = supportRoots.filter(support =>
+        support &&
+        !support.supportUnder &&
+        !support.intervention &&
+        !support.recovery &&
+        support.source &&
+        rootNodes.includes(support.source)
+    );
+    baseSupports.forEach(support => growSupportUnderground(support, support.source.seedMode || "live"));
+    applyBrightness(false);
+    updateSystemMonitor();
+}
+
+function growSupportUnderground(support, seedMode) {
+    if(!support || !support.source || support.intervention || support.recovery || support.supportUnder) return;
+    if(!(seedMode === "live" || seedMode === "downward")) return;
+    const sideAnchor = support.source.side ? rootNodes.find(node => node.layer === "anchorage" && node.side === support.source.side) : null;
+    if(!sideAnchor) return;
+    if(!support.seasonalBaseSupport && support.source.y < sideAnchor.y + 64) return;
+    if(support.target.y <= support.source.y) return;
+    const seasonalCount = seasonalSupportUndergrowthCount();
+    if(seasonalCount <= 0) return;
+    const seasonalLimit = Math.round(MAX_SUPPORT_UNDERGROWTH_NODES * microbialSeasonActivity());
+    if(rootNodes.filter(node => node.seedMode === "support-under").length >= seasonalLimit) return;
+    if(rootNodes.length >= MAX_NODES - seasonalCount) freeActionNodeCapacity(seasonalCount);
+    if(!rootNodes.includes(support.source)) return;
+    if(rootNodes.length >= MAX_NODES - 1) return;
+
+    let parentNode = support.source;
+    const baseX = support.target.x;
+    const baseY = Math.max(support.source.y + 72, support.target.y - 80);
+    for(let i = 0; i < seasonalCount && rootNodes.length < MAX_NODES; i++) {
+        const seedRow = supportUnderDataRow(support.seedKey, i);
+        const seedKey = `${support.seedKey}-under-${config.lat.toFixed(3)}-${config.lon.toFixed(3)}-${seedRow ? seedRow.sampleId : "local"}-${i}`;
+        const wave = (stableRand(seedKey, 4) - 0.5) * (34 + i * 16);
+        const node = {
+            id: nextNodeId++,
+            layer: "deck",
+            x: clamp(baseX + wave, canvasMinX(), canvasMaxX()),
+            y: clamp(baseY + i * 54 + stableRand(seedKey, 3) * 38, canvasMinY(), canvasMaxY()),
+            side: support.source.side,
+            text: seedRow ? `[${seedRow.year}] ${seedRow.biome}` : (i === 0 ? "[support-below data root]" : "[deep support data root]"),
+            weight: 1 + metrics.stressLevel * 2.2,
+            stage: 1,
+            source: seedRow ? `below-support EMP sample: ${seedRow.sampleId} / ${seedRow.biome}` : "Environmental data continuing below the support root",
+            dataYear: seedRow ? seedRow.year : null,
+            seedMode: "support-under",
+            seedKey
+        };
+
+        rootNodes.push(node);
+        addBridgeLink(parentNode, node, "cross");
+        drawNode(node);
+        parentNode = node;
+    }
+
+    const extensionKey = `${support.seedKey}-under-extension-${config.lat.toFixed(3)}-${config.lon.toFixed(3)}`;
+    const extension = {
+        source: parentNode,
+        target: {
+            x: clamp(parentNode.x + (stableRand(extensionKey, 5) - 0.5) * width * 0.3, canvasMinX(), canvasMaxX()),
+            y: clamp(parentNode.y + 120 + stableRand(extensionKey, 6) * 260, canvasMinY(), canvasMaxY())
+        },
+        seedKey: extensionKey,
+        intervention: false,
+        activeIntervention: false,
+        recovery: false,
+        supportUnder: true
+    };
+    supportRoots.push(extension);
+    drawSupportRoot(extension);
 }
 
 function rerenderSupportRoots() {
@@ -1901,27 +2005,32 @@ function clearAndResetCanvas() {
     updateSystemMonitor();
 }
 
+function resetCanvasForLocationChange() {
+    anchorPositions = { left: null, right: null };
+    rootNodes = [];
+    rootLinks = [];
+    supportRoots = [];
+    nextNodeId = 0;
+    supportLayer.selectAll("*").remove();
+    linkLayer.selectAll("*").remove();
+    nodeLayer.selectAll("*").remove();
+    getAnchorNode("left");
+    getAnchorNode("right");
+    renderBridgeGuides();
+    applyBrightness(false);
+    refreshFormMode();
+    updateSystemMonitor();
+}
+
 // --- 8. Event bindings ---
 function rebuildBridgeLayers() {
     updateInterventionState();
     clearAndResetCanvas();
     syncEmpMetrics();
     seedCumulativeBridge();
-    renderedDataYear = config.year;
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
-}
-
-function removeCumulativeDataAfterYear(year) {
-    const removedNodes = new Set(rootNodes.filter(node =>
-        node.layer !== "anchorage" &&
-        !node.intervention &&
-        !node.recovery &&
-        Number.isFinite(node.dataYear) &&
-        node.dataYear > year
-    ));
-    removeNodesFromCanvas(removedNodes);
 }
 
 function removeAllCumulativeData() {
@@ -1934,74 +2043,11 @@ function removeAllCumulativeData() {
     removeNodesFromCanvas(removedNodes);
 }
 
-function existingCumulativeSeedKeys() {
-    return new Set(rootNodes
-        .filter(node => Number.isFinite(node.dataYear) && node.seedKey)
-        .map(node => node.seedKey));
-}
-
-function addCumulativeDataForYearRange(fromYear, toYear) {
-    if(!stableBridgeSeedRows.length || toYear <= fromYear) return;
-    const growthState = "neutral";
-    const existingKeys = existingCumulativeSeedKeys();
-    const rows = stableBridgeSeedRows
-        .filter(row => row.year > fromYear && row.year <= toYear)
-        .slice(0, Math.max(18, Math.round(CUMULATIVE_BASE_NODES * 0.28)));
-
-    bulkRenderDepth += 1;
-    try {
-        rows.forEach((row, index) => {
-            const mode = growthState === "neutral"
-                ? "downward"
-                : "bridge";
-            const key = `${row.sampleId}-${row.year}-${mode}`;
-            if(existingKeys.has(key)) return;
-            createBridgeNode(row, mode, index);
-            existingKeys.add(key);
-            if(growthState === "neutral" && index % 3 === 0) createBridgeNode(row, "downward", index + rows.length);
-            if(growthState !== "neutral" && index % 5 === 0) createBridgeNode(row, "downward", index + rows.length);
-        });
-    } finally {
-        bulkRenderDepth -= 1;
-    }
-    ageExistingRoots();
-    refreshFormMode();
-    updateSystemMonitor();
-}
-
-function ensureCumulativeBaseFrameForYear(year) {
-    if(!stableBridgeSeedRows.length) return;
-    const targetCount = Math.round(CUMULATIVE_BASE_NODES * 0.38);
-    const eligibleRows = stableBridgeSeedRows.filter(row => row.year <= year);
-    const stride = Math.max(1, Math.floor(eligibleRows.length / targetCount));
-    const seedRows = eligibleRows
-        .filter((_, index) => index % stride === 0)
-        .slice(0, targetCount);
-    const existingKeys = existingCumulativeSeedKeys();
-
-    bulkRenderDepth += 1;
-    try {
-        seedRows.forEach((row, index) => {
-            const key = `${row.sampleId}-${row.year}-downward`;
-            if(existingKeys.has(key)) return;
-            createBridgeNode(row, "downward", index);
-            existingKeys.add(key);
-            if(index % 3 === 0) createBridgeNode(row, "downward", index + targetCount);
-        });
-    } finally {
-        bulkRenderDepth -= 1;
-    }
-    ageExistingRoots();
-    refreshFormMode();
-    updateSystemMonitor();
-}
-
 function updateBridgeForYearChange(nextYear) {
     updateInterventionState();
     syncEmpMetrics();
     removeAllCumulativeData();
     seedCumulativeBridge({ baseFrameOnly: true });
-    renderedDataYear = nextYear;
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
@@ -2057,8 +2103,9 @@ function applyPollutionPreview(value) {
     markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
     syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
     if(value < 0) {
+        const previewRecoveryCount = Math.min(RECOVERY_BURST_ROOTS, Math.max(2, Math.abs(value) * 2));
         ensureRecoveryBridgeBase();
-        growRecoveryBurst("preview", Math.min(RECOVERY_BURST_ROOTS, Math.abs(value)));
+        growRecoveryBurst("preview", previewRecoveryCount);
         dissolveInterventionRoots(Math.min(RECOVERY_DISSOLVE_NODES, Math.abs(value) + 1));
     }
     metrics.lastIntervention = `Preview pollution value ${value}: intervention counters distributed automatically.`;
