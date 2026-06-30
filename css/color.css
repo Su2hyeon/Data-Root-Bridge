@@ -6,7 +6,7 @@
     --globe-stage-1: #bed08cdc;
     --root-stage-1: #8bc6f4;
     --root-intervention-stage-1: #bed08c88;
-    --root-recovery-stage-1: #4fa5df;
+    --root-recovery-stage-1: #48b6ed;
 
     /* stage 2 */
     --bg-stage-2: #F5F5F5;
@@ -18,7 +18,7 @@
 
     /* stage 3 / normal */
     --bg-stage-3: #F5F5F5;
-    --text-stage-3: #74c3ff;
+    --text-stage-3: #54b8ff;
     --globe-stage-3: #78604edd;
     --root-stage-3: #959595;
     --root-intervention-stage-3: #78604e61;
@@ -88,5 +88,5 @@
     --pixel-number-color: var(--pixel-number-stage-3);
     --pixel-anchor-color: color-mix(in srgb, var(--pixel-root-color) 60%, black);
     --anchor-root-color: color-mix(in srgb, var(--root-fresh-color) 60%, black);
-    --bridge-start-y: 0.43;
+    --bridge-start-y: 0.47;
 }
