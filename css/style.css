@@ -2,15 +2,15 @@
    1. CORE VARIABLES & BASE STYLES (기본 전역 설정)
    ========================================================================== */
 @font-face {
-    font-family: "DataRootNoto";
-    src: url("../source/NotoSans-Regular.ttf") format("truetype");
+    font-family: "DataRootGrotesk";
+    src: url("../source/OverusedGrotesk-Roman.ttf") format("truetype");
     font-weight: 400;
     font-style: normal;
 }
 
 @font-face {
-    font-family: "DataRootNoto";
-    src: url("../source/NotoSans-Bold.ttf") format("truetype");
+    font-family: "DataRootGrotesk";
+    src: url("../source/OverusedGrotesk-SemiBold.ttf") format("truetype");
     font-weight: 700;
     font-style: normal;
 }
@@ -20,9 +20,9 @@ body {
     padding: 0;
     background: var(--bg-white);
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 700;
-    font-size: 9pt;
+    font-size: 10pt;
     overflow: hidden;
     user-select: none;
     transition: background-color 0.35s ease, color 0.35s ease;
@@ -43,9 +43,9 @@ span,
 #reaction-log,
 #custom-tooltip {
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
-    font-size: 9pt;
+    font-size: 10pt;
     transition: color 0.35s ease, background-color 0.35s ease, border-color 0.35s ease;
 }
 
@@ -78,7 +78,7 @@ span,
 }
 
 .top-ui-wrapper {
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .bottom-ui-wrapper {
@@ -98,7 +98,7 @@ span,
 
 #left-panel > .section-title:first-child,
 .top-ui-wrapper > .section-title {
-    font-size: 9pt;
+    font-size: 10pt;
     font-weight: 700;
     letter-spacing: 0;
     text-transform: none;
@@ -106,6 +106,15 @@ span,
     border: 0;
     padding: 0;
     margin: 0;
+    cursor: pointer;
+}
+
+
+.top-ui-wrapper .section-title {
+    pointer-events: auto;
+    cursor: pointer;
+    position: relative;
+    z-index: 46;
 }
 
 #data-monitor { 
@@ -116,7 +125,7 @@ span,
     padding: 0;
     border: 0;
     background: transparent;
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     visibility: hidden;
 }
 
@@ -131,7 +140,7 @@ body.metrics-ready #data-monitor {
     width: 100%;
     margin: 0;
     color: var(--text-main);
-    font-size: 9pt;
+    font-size: 10pt;
     line-height: 1;
     padding-bottom: 0;
 }
@@ -146,12 +155,12 @@ body.metrics-ready #data-monitor {
     font-weight: 400;
     text-align: right;
     white-space: nowrap;
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
 }
 
 .monitor-row .val span {
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
     white-space: nowrap;
 }
@@ -187,8 +196,8 @@ body.metrics-ready #data-monitor {
 
 .intervention-title {
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
-    font-size: 9pt;
+    font-family: "DataRootGrotesk", sans-serif;
+    font-size: 10pt;
     font-weight: 700;
     line-height: 1;
     margin: 0 0 5px;
@@ -211,7 +220,7 @@ body.metrics-ready #data-monitor {
 }
 
 .counter-title {
-    font-size: 9pt;
+    font-size: 10pt;
     line-height: 1.35;
     font-weight: 400;
     color: var(--text-dark);
@@ -234,7 +243,7 @@ body.metrics-ready #data-monitor {
     border: 0;
     background: transparent;
     color: var(--text-main);
-    font-size: 9pt;
+    font-size: 10pt;
     font-weight: 400;
     padding: 0 4px;
     cursor: pointer;
@@ -256,8 +265,8 @@ body.metrics-ready #data-monitor {
 
 .cnt-value {
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
-    font-size: 9pt;
+    font-family: "DataRootGrotesk", sans-serif;
+    font-size: 10pt;
     font-weight: 400;
     min-width: 22px;
     text-align: center;
@@ -312,7 +321,7 @@ body.metrics-ready #data-monitor {
     align-self: center;
     margin: 0;
     color: var(--text-dark);
-    font-size: 9pt;
+    font-size: 10pt;
     font-weight: 700;
 }
 
@@ -356,7 +365,7 @@ body.metrics-ready #data-monitor {
     display: flex;
     justify-content: space-between;
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
     font-size: 10px;
     margin-top: 4px;
@@ -423,7 +432,7 @@ body.metrics-ready #data-monitor {
     height: auto;
     min-width: auto;
     padding: 0;
-    font-size: 9pt;
+    font-size: 10pt;
     font-weight: 400;
     cursor: pointer;
 }
@@ -445,9 +454,9 @@ body.metrics-ready #data-monitor {
 #txt-zoom {
     display: inline-block;
     text-align: left;
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
-    font-size: 9pt;
+    font-size: 10pt;
     color: var(--text-main);
     cursor: ew-resize;
     user-select: none;
@@ -470,7 +479,7 @@ body.metrics-ready #data-monitor {
     height: 100vh;
     background: var(--bg-white) !important;
     z-index: auto;
-    pointer-events: auto;
+    pointer-events: none;
     transition: background-color 0.35s ease;
 }
 
@@ -479,7 +488,7 @@ body.metrics-ready #data-monitor {
     inset: 0;
     width: 100%;
     height: 100%;
-    pointer-events: auto;
+    pointer-events: none;
     overflow: visible;
 }
 
@@ -488,6 +497,13 @@ body.metrics-ready #data-monitor {
     height: 100%;
     cursor: grab;
     overflow: visible;
+    pointer-events: none;
+}
+
+#root-canvas svg .root-dot-node,
+#root-canvas svg .anchorage-node,
+#root-canvas svg .edge-support-root {
+    pointer-events: auto;
 }
 
 #root-canvas svg:active { 
@@ -508,7 +524,7 @@ body.metrics-ready #data-monitor {
     background: var(--bg-white);
     opacity: 0;
     transform: translateX(-50%) translateY(16px) scale(0.96);
-    pointer-events: none;
+    pointer-events: auto;
     transition: opacity 0.25s ease, transform 0.25s ease, background-color 0.35s ease, border-color 0.35s ease;
 }
 
@@ -548,7 +564,7 @@ body.metrics-ready #data-monitor {
 
 .anchor-label {
     fill: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-size: 8px;
     font-weight: 400;
     letter-spacing: 1px;
@@ -559,7 +575,7 @@ body.metrics-ready #data-monitor {
     fill: none;
     vector-effect: non-scaling-stroke;
     stroke-linecap: round;
-    transition: stroke 0.35s ease, stroke-opacity 0.35s ease;
+    transition: stroke 0.35s ease;
 }
 
 .edge-support-root {
@@ -567,7 +583,7 @@ body.metrics-ready #data-monitor {
     vector-effect: non-scaling-stroke;
     stroke-linecap: round;
     pointer-events: stroke;
-    transition: stroke 0.35s ease, stroke-opacity 0.35s ease;
+    transition: stroke 0.35s ease;
 }
 
 .primary-link {
@@ -579,8 +595,8 @@ body.metrics-ready #data-monitor {
 }
 
 .root-dot-node {
-    cursor: pointer;
-    transition: fill 0.2s, stroke 0.2s, stroke-width 0.16s ease, opacity 0.16s ease;
+    cursor: default;
+    transition: fill 0.2s, stroke 0.2s, stroke-width 0.16s ease;
 }
 
 .root-dot-node:hover {
@@ -588,17 +604,13 @@ body.metrics-ready #data-monitor {
 }
 
 .anchorage-node .root-dot-node {
+    cursor: move;
     stroke-width: 1.4px;
 }
 
 .anchorage-node.anchor-dragging .root-dot-node {
     opacity: 1 !important;
     stroke-width: 2.1px !important;
-}
-
-.root-node.root-dragging .root-dot-node {
-    opacity: 1 !important;
-    stroke-width: 1.25px !important;
 }
 
 #root-canvas.root-form-active .guide-layer,
@@ -637,7 +649,7 @@ body.metrics-ready #data-monitor {
 
 .pixel-root-number {
     fill: var(--pixel-number-color);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-size: 6pt;
     font-weight: 300;
     text-anchor: middle;
@@ -661,7 +673,7 @@ body.metrics-ready #data-monitor {
     background: transparent;
     border: 0;
     color: var(--text-main);
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
     font-size: 9pt;
     line-height: 1.4;
@@ -674,7 +686,7 @@ body.metrics-ready #data-monitor {
     color: var(--text-main);
     padding: 10px 14px;
     font-size: 11px;
-    font-family: "DataRootNoto", sans-serif;
+    font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
     border: 1px solid rgba(79, 164, 246, 0.28);
     border-radius: 2px;
@@ -685,4 +697,239 @@ body.metrics-ready #data-monitor {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
-/* 구버전 코드 내부에 꼬여있던 잘못된 전체 화면 미디어 블록 완전 제거 완료 */
+
+/* ==========================================================================
+   7. FULLSCREEN INFO & ONBOARDING OVERLAY
+   ========================================================================== */
+#info-logo {
+    position: relative;
+    z-index: 46;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+#info-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2000000;
+    opacity: 1;
+    pointer-events: auto;
+    color: var(--text-main);
+    font-family: "DataRootGrotesk", sans-serif;
+}
+
+#info-overlay.active {
+    display: block;
+}
+
+.info-backdrop {
+    position: absolute;
+    inset: 0;
+    background-color: var(--bg-white);
+    z-index: 1;
+    cursor: default;
+}
+
+.info-content-container {
+    position: relative;
+    z-index: 2;
+    width: 100vw;
+    height: 100vh;
+    max-width: 1400px;
+    pointer-events: none;
+    color: var(--text-main);
+    display: flex;
+    flex-direction: column;
+    padding: 4vh 3.8vw 8vh 12.33vw;
+    box-sizing: border-box;
+    font-size: 9pt;
+    line-height: 1.42;
+}
+
+.info-content-container section,
+.info-content-container aside,
+.info-content-container footer {
+    pointer-events: auto;
+}
+
+.info-content-container h1,
+.info-content-container h2,
+.info-content-container p {
+    margin: 0;
+    color: inherit;
+    font-size: 9pt;
+    line-height: 1.42;
+    font-weight: 400;
+    text-align: justify;
+    hyphens: auto;
+}
+
+.info-footer p,
+.info-contact p,
+.info-typeface p,
+.info-sources p {
+    text-align: left;
+    text-align-last: left;
+    hyphens: none;
+}
+
+.info-content-container h1 {
+    font-weight: 600;
+    font-size: 10pt;
+}
+
+.info-content-container h2,
+.info-section-label,
+.info-footer > div > span {
+    font-weight: 400;
+}
+
+.info-intro {
+    position: absolute;
+    left: 3.33vw;
+    top: 4vh;
+    display: grid;
+    grid-template-columns: 150px 600px;
+    column-gap: 0;
+    max-width: 860px;
+}
+
+.info-section {
+    position: absolute;
+    width: 610px;
+    min-height: 150px;
+}
+
+.info-visual {
+    left: 12.33vw;
+    top: 22vh;
+}
+
+.info-concept {
+    left: 12.39vw;
+    top: 44vh;
+}
+
+.info-data {
+    left: 12.33vw;
+    top: 66vh;
+}
+
+.info-section-content h2 {
+    position: absolute;
+    left: 17.2vw;
+    top: 0;
+    width: 360px;
+}
+
+.info-section-content p {
+    position: absolute;
+    left: 0;
+    top: 30px;
+    width: 610px;
+}
+
+.info-data .info-section-content {
+    position: absolute;
+    left: 17.28vw;
+    top: 0;
+    width: 360px;
+}
+
+.info-data-list {
+    display: grid;
+    gap: 18px;
+}
+
+.info-data-list p {
+    position: static;
+    width: auto;
+}
+
+.info-data-list strong {
+    font-weight: 600;
+}
+
+.info-images {
+    position: absolute;
+    left: 70.52vw;
+    top: 4.25vh;
+    display: grid;
+    gap: 23px;
+}
+
+.info-images img {
+    width: 272.7539px;
+    height: 177.5925px;
+    object-fit: cover;
+    display: block;
+}
+
+.info-footer {
+    position: absolute;
+    left: 12.33vw;
+    width: calc(70.52vw + 272.7539px - 12.33vw);
+    right: auto;
+    bottom: 4.3vh;
+    top: auto;
+
+    display: grid;
+    grid-template-columns: 250px 300px 260px 1fr;
+    column-gap: 46px;
+    align-items: flex-start;
+}
+
+.info-footer > div {
+    margin: 0;
+    padding: 0;
+}
+
+
+.info-typeface,
+.info-sources {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    column-gap: 24px;
+    justify-self: end;
+}
+
+.info-contact {
+    display: grid;
+    grid-template-columns: 50px max-content;
+    column-gap: 24px;
+    align-items: start;
+}
+
+.info-contact p { 
+    display: grid;
+    grid-template-columns: 70px max-content;
+    column-gap: 18px;
+    row-gap: 2px;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.info-credit-main p {
+    line-height: 1.65;
+}
+
+
+.info-footer,
+.info-footer p,
+.info-footer span {
+    margin: 0;
+    padding: 0;
+    font-size: 8.5pt;
+    line-height: 1.3;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+
+.info-typeface p,
+.info-sources p {
+    white-space: nowrap;
+}
