@@ -16,10 +16,10 @@
     <div id="main-container">
         
         <div class="top-ui-wrapper">
-            <div class="section-title">Data Root Bridge</div>
+            <div id="info-logo" class="section-title" role="button" tabindex="0">Data Root Bridge</div>
             
             <div id="data-monitor">
-                <div class="monitor-row"><span>Target</span><span>Space</span><span id="txt-loc" class="val"><span>Weimar,</span><span>Germany</span></span></div>
+                <div class="monitor-row"><span>Target</span><span>Country</span><span id="txt-loc" class="val"><span>Weimar,</span><span>Germany</span></span></div>
                 <div class="monitor-row"><span>Selected</span><span>Month</span><span>Year</span><span id="txt-selected-year" class="val"><span>June</span><span>2026</span></span></div>
                 <div class="monitor-row"><span>Air</span><span>Temperature</span><span id="txt-air" class="val">--</span></div>
                 <div class="monitor-row"><span>Fine</span><span>Dust</span><span id="txt-pm25" class="val">--</span></div>
@@ -122,9 +122,70 @@
     </div>
 </div>
 
+<div id="info-overlay">
+    <div class="info-backdrop"></div>
+    
+    <div class="info-content-container">
+        <section class="info-intro">
+            <h1>Data Root Bridge</h1>
+            <p>Data Root Bridge is a live interactive project that connects India's Living Root Bridges with microbial data. It shows how our small everyday choices affect the Earth's hidden ecosystem. As you change the parameters, the root bridge grows and changes in real time. This project makes invisible ecological networks visible, helping us shift from a human-centered view to a nature-centered way of thinking.</p>
+        </section>
+
+        <section class="info-section info-visual">
+            <div class="info-section-label">Visual Motivation</div>
+            <div class="info-section-content">
+                <h2>Jingkieng Jri: Living Root Bridge</h2>
+                <p>The Living Root Bridge is a prime example of how indigenous communities share and use nature as a common resource based on traditional ecological knowledge. To survive in a heavy rain environment, people guided the aerial roots of rubber trees to entangle and take root across rivers. Over time, these roots formed strong, living bridges. This architecture represents not only structural strength but also long-term co-existence for future generations.</p>
+            </div>
+        </section>
+
+        <section class="info-section info-concept">
+            <div class="info-section-label">Design Concept</div>
+            <div class="info-section-content">
+                <p>This platform connects real-world climate, atmospheric data, and global microbiome archives. It dynamically links historical changes in climate and soil with real-time pollution data from citizen sensors. Through human intervention parameters, users directly influence how the living root bridge grows and connects.</p>
+            </div>
+        </section>
+
+        <section class="info-section info-data">
+            <div class="info-section-label">Used Data</div>
+            <div class="info-section-content info-data-list">
+                <p><strong>* Earth Microbiome Project (EMP Active Archive)</strong><br>Historical baselines for soil health and microbial diversity.</p>
+                <p><strong>* Open-Meteo API</strong><br>Real-world air temperature, soil temperature, and moisture.</p>
+                <p><strong>* Sensor.Community</strong><br>Live, crowd-sourced fine dust data from local citizen sensors.</p>
+            </div>
+        </section>
+
+        <aside class="info-images" aria-label="Living Root Bridge reference images">
+            <img src="source/image1.jpg" alt="Living Root Bridge over a stream">
+            <img src="source/image2.jpg" alt="Living Root Bridge in a forest">
+            <img src="source/image3.jpg" alt="Living Root Bridge structure among trees">
+        </aside>
+
+        <footer class="info-footer">
+            <div class="info-credit-main">
+                <p>SoSe 2026, Bauhaus-Universität Weimar<br>Commons in Design · Department of Typography<br>Supervised by Katharina Köhler</p>
+            </div>
+            <div class="info-contact">
+                <span>Contact</span>
+                <p>
+                    <span>e-mail</span><span>suhyeon.lee@uni-weimar.de</span>
+                    <span>Instagram</span><span>@iee.su.hyeon</span></p>
+            </div>
+            <div class="info-typeface">
+                <span>Typeface</span>
+                <p>Overused Grotesk by RandomMaekrs</p>
+            </div>
+            <div class="info-sources">
+                <span>Images Sources</span>
+                <p>Faraway Worlds · OYO Travel Guide</p>
+            </div>
+        </footer>
+    </div>
+</div>
+
 <script src="js/roots.js"></script>
-<script src="js/info.js"></script>
 <script src="js/form.js"></script>
 <script src="js/main.js"></script>
+<script src="js/info.js"></script>
 </body>
 </html>
