@@ -132,7 +132,7 @@ map.on("click", async function(e) {
     config.lat = e.latlng.lat;
     config.lon = e.latlng.lng;
     mapMarker.setLatLng(e.latlng);
-    config.locName = `Finding place (${config.lat.toFixed(2)}, ${config.lon.toFixed(2)})`;
+    config.locName = "Finding Country";
     setText("txt-loc", config.locName);
     await resolveSelectedPlaceName();
     locationBridgeRefreshPending = true;
@@ -306,7 +306,13 @@ function taxonomyRank(taxonomy, prefix) {
     return part ? part.replace(prefix, "").trim() : "";
 }
 
+function locationNameFallback() {
+    if(config.lat <= -60) return "Antarctica";
+    return "Unknown Country";
+}
+
 function formatPlaceNameFromAddress(address = {}, fallback = "") {
+    const country = address.country || "";
     const primary =
         address.city ||
         address.town ||
@@ -322,8 +328,9 @@ function formatPlaceNameFromAddress(address = {}, fallback = "") {
         address.archipelago ||
         address.ocean ||
         address.sea ||
+        country ||
         fallback;
-    const country = address.country || "";
+    if(primary === country) return country || fallback;
     return [primary, country].filter(Boolean).join(", ");
 }
 
@@ -332,17 +339,26 @@ function selectedMonthLabel() {
 }
 
 async function resolveSelectedPlaceName() {
-    const fallback = `Space (${config.lat.toFixed(2)}, ${config.lon.toFixed(2)})`;
+    const fallback = locationNameFallback();
     try {
-        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${config.lat.toFixed(5)}&lon=${config.lon.toFixed(5)}&zoom=8&addressdetails=1&accept-language=en`;
-        const response = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const baseUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${config.lat.toFixed(5)}&lon=${config.lon.toFixed(5)}&addressdetails=1&accept-language=en`;
+        let response = await fetch(`${baseUrl}&zoom=8`, { headers: { "Accept-Language": "en" } });
+        if(response.ok) {
+            const data = await response.json();
+            const nextName = formatPlaceNameFromAddress(data.address, data.name || data.display_name || fallback);
+            config.locName = nextName || fallback;
+            setText("txt-loc", config.locName);
+            return;
+        }
+
+        response = await fetch(`${baseUrl}&zoom=3`, { headers: { "Accept-Language": "en" } });
         if(!response.ok) {
             config.locName = fallback;
             setText("txt-loc", config.locName);
             return;
         }
         const data = await response.json();
-        const nextName = formatPlaceNameFromAddress(data.address, data.name || data.display_name || fallback);
+        const nextName = formatPlaceNameFromAddress(data.address, fallback);
         config.locName = nextName || fallback;
         setText("txt-loc", config.locName);
     } catch(e) {
@@ -423,17 +439,29 @@ function microbialSeasonActivity() {
     const adjusted = getHumanAdjustedMetrics();
     const summerMonth = config.lat >= 0 ? 7 : 1;
     const seasonalWarmth = (Math.cos(((config.month - summerMonth) / 12) * Math.PI * 2) + 1) * 0.5;
+    const seasonalPulse = Math.pow(seasonalWarmth, 1.7);
     const tempSuitability = clamp(1 - Math.abs(adjusted.soilTemp - 24) / 24, 0, 1);
     const moistureSuitability = clamp(1 - Math.abs(adjusted.soilMoisture - 0.48) / 0.48, 0, 1);
-    return clamp(seasonalWarmth * 0.58 + tempSuitability * 0.28 + moistureSuitability * 0.14, 0, 1);
+    return clamp(seasonalPulse * 0.76 + tempSuitability * 0.16 + moistureSuitability * 0.08, 0, 1);
+}
+
+function climateGrowthSuitability() {
+    const adjusted = getHumanAdjustedMetrics();
+    const airScore = clamp(1 - Math.abs(adjusted.airTemp - 18) / 30, 0, 1);
+    const soilScore = clamp(1 - Math.abs(adjusted.soilTemp - 16) / 26, 0, 1);
+    const moistureScore = clamp(1 - Math.abs(adjusted.soilMoisture - 0.46) / 0.46, 0, 1);
+    const polarScore = clamp((82 - Math.abs(config.lat)) / 32, 0.16, 1);
+    const climateScore = airScore * 0.42 + soilScore * 0.34 + moistureScore * 0.24;
+    return clamp(climateScore * (0.42 + polarScore * 0.58), 0.08, 1);
 }
 
 function seasonalSupportUndergrowthCount() {
     const activity = microbialSeasonActivity();
-    if(activity < 0.28) return 0;
-    if(activity < 0.55) return 1;
-    if(activity < 0.82) return 2;
-    return 3;
+    if(activity < 0.22) return 0;
+    if(activity < 0.45) return 2;
+    if(activity < 0.68) return 4;
+    if(activity < 0.86) return 6;
+    return 8;
 }
 
 function counterImpactLabel(type) {
@@ -907,19 +935,24 @@ function cumulativeLayerFor(row, mode) {
 function seedCumulativeBridge(options = {}) {
     if(!stableBridgeSeedRows.length) return;
     const growthState = options.baseFrameOnly ? "neutral" : bridgeGrowthState();
-    const targetCount = growthState === "neutral" ? Math.round(CUMULATIVE_BASE_NODES * 0.38) : CUMULATIVE_BASE_NODES;
-    const eligibleRows = stableBridgeSeedRows.filter(row => row.year <= config.year);
+    const climateFit = climateGrowthSuitability();
+    const climateDensity = clamp(0.22 + climateFit * 1.08, 0.22, 1.18);
+    const targetCount = growthState === "neutral"
+        ? Math.round(CUMULATIVE_BASE_NODES * 0.38 * climateDensity)
+        : Math.round(CUMULATIVE_BASE_NODES * clamp(0.48 + climateFit * 0.62, 0.48, 1.08));
+    const eligibleRows = stableBridgeSeedRows.filter(row => row.year <= CURRENT_YEAR);
     const stride = Math.max(1, Math.floor(eligibleRows.length / targetCount));
     const seedRows = eligibleRows
         .filter((_, index) => index % stride === 0)
         .slice(0, targetCount);
+    const neutralExtraStride = climateFit > 0.74 ? 2 : climateFit > 0.48 ? 3 : climateFit > 0.28 ? 5 : 0;
 
     bulkRenderDepth += 1;
     try {
         seedRows.forEach((row, index) => {
             if(growthState === "neutral") {
                 createBridgeNode(row, "downward", index);
-                if(index % 3 === 0) createBridgeNode(row, "downward", index + targetCount);
+                if(neutralExtraStride && index % neutralExtraStride === 0) createBridgeNode(row, "downward", index + targetCount);
                 return;
             }
 
@@ -935,6 +968,7 @@ function seedCumulativeBridge(options = {}) {
     }
 
     ageExistingRoots();
+    applyCumulativeYearMorph();
     refreshFormMode();
     updateSystemMonitor();
     metrics.lastIntervention = `Displaying the ${config.year} intervention layer over the ${START_YEAR}-${CURRENT_YEAR} stable bridge frame.`;
@@ -992,6 +1026,43 @@ function removeNodesFromCanvas(removedNodes) {
     linkLayer.selectAll(".root-link").filter(d => removedNodes.has(d.source) || removedNodes.has(d.target)).remove();
     supportLayer.selectAll(".edge-support-root").filter(d => removedNodes.has(d.source)).remove();
     refreshFormMode();
+}
+
+function ensureBasePosition(item) {
+    if(!item) return;
+    if(!Number.isFinite(item.baseX)) item.baseX = item.x;
+    if(!Number.isFinite(item.baseY)) item.baseY = item.y;
+}
+
+function yearMorphStrength() {
+    return 1 - getYearProgress();
+}
+
+function applyCumulativeYearMorph() {
+    const morph = yearMorphStrength();
+    rootNodes.forEach(node => {
+        ensureBasePosition(node);
+        if(node.layer === "anchorage") return;
+        if(node.intervention || node.recovery || node.seedMode === "support-under") {
+            node.x = node.baseX;
+            node.y = node.baseY;
+            return;
+        }
+        const seedKey = node.seedKey || node.id;
+        const futureWeight = Number.isFinite(node.dataYear) && node.dataYear > config.year ? 1.35 : 0.7;
+        const side = node.side === "left" ? -1 : node.side === "right" ? 1 : (stableRand(seedKey, 61) > 0.5 ? 1 : -1);
+        const driftX = side * (stableRand(seedKey, 62) * 28 + 8) * morph * futureWeight;
+        const driftY = (stableRand(seedKey, 63) - 0.24) * 54 * morph * futureWeight;
+        node.x = clamp(node.baseX + driftX, canvasMinX(), canvasMaxX());
+        node.y = clamp(node.baseY + driftY, canvasMinY(), canvasMaxY());
+    });
+
+    nodeLayer.selectAll(".root-node").style("display", null);
+    linkLayer.selectAll(".root-link").style("display", null);
+    supportLayer.selectAll(".edge-support-root").style("display", null);
+    rerenderNodes();
+    rerenderLinks();
+    rerenderSupportRoots();
 }
 
 function freeActionNodeCapacity(requiredCount = 1) {
@@ -1094,10 +1165,13 @@ function createRecoveryOffshoot(parentNode, seedIndex) {
         recoveryOffshoot: true,
         recoverySide: parentNode.recoverySide
     };
+    node.baseX = node.x;
+    node.baseY = node.y;
 
     rootNodes.push(node);
     addBridgeLink(parentNode, node, "recovery-offshoot", false, false, true);
     drawNode(node);
+    return node;
 }
 
 function growRecoveryBurst(type, amount = RECOVERY_BURST_ROOTS) {
@@ -1114,6 +1188,39 @@ function growRecoveryBurst(type, amount = RECOVERY_BURST_ROOTS) {
         }
     }
     metrics.lastIntervention = `Protective action reducing ${counterImpactLabel(type)}: recovery roots expand while deformed blue strands dissolve.`;
+}
+
+function removeTemporalRecoveryRoots() {
+    const removedNodes = new Set(rootNodes.filter(node => node.timeRecovery));
+    removeNodesFromCanvas(removedNodes);
+}
+
+function refreshTemporalRecoveryRoots() {
+    removeTemporalRecoveryRoots();
+    const pastFactor = yearMorphStrength();
+    const cleanActionWeight = negativeInterventionCount() * 10 + recoveryActionCount * 1.2;
+    const count = Math.round(clamp(cleanActionWeight * pastFactor, 0, 90));
+    if(count <= 0) return;
+
+    ensureRecoveryBridgeBase();
+    bulkRenderDepth += 1;
+    try {
+        for(let i = 0; i < count && rootNodes.length < MAX_NODES; i++) {
+            const seedIndex = 50000 + i;
+            const node = createBridgeNode(null, "recovery", seedIndex);
+            if(!node) continue;
+            node.timeRecovery = true;
+            node.text = "[past clean recovery root]";
+            node.source = "Past cleaner baseline: recovery root appears stronger in the selected year";
+            if(i % 2 === 0 || stableRand(`time-recovery-offshoot-${i}`, 7) > 0.48) {
+                const offshoot = createRecoveryOffshoot(node, seedIndex);
+                if(offshoot) offshoot.timeRecovery = true;
+            }
+        }
+    } finally {
+        bulkRenderDepth -= 1;
+    }
+    ageExistingRoots();
 }
 
 function dissolveInterventionRoots(amount = RECOVERY_DISSOLVE_NODES) {
@@ -1144,8 +1251,6 @@ function dissolveInterventionRoots(amount = RECOVERY_DISSOLVE_NODES) {
     nodeLayer.selectAll(".root-node")
         .filter(d => resolvedNodes.has(d))
         .select(".root-dot-node")
-        .transition()
-        .duration(520)
         .attr("r", 1.2)
         .style("opacity", 0.18);
 
@@ -1317,6 +1422,8 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
         seedMode,
         seedKey
     };
+    node.baseX = node.x;
+    node.baseY = node.y;
 
     if(!bulkRenderDepth) ageExistingRoots();
     rootNodes.push(node);
@@ -1349,27 +1456,158 @@ function linkPath(link) {
     return `M${source.x},${source.y} C${source.x + dx*0.34},${source.y + bend} ${source.x + dx*0.68},${target.y - bend} ${target.x},${target.y}`;
 }
 
-function lineTooltipTitle(item) {
-    if(item.recovery) return "Recovery Line";
-    if(item.intervention && item.kind === "cross") return item.activeIntervention ? "Bad-Action Spread Line" : "Grey Spread Trace";
-    if(item.intervention) return item.activeIntervention ? "Direct Bad-Action Line" : "Grey Direct Trace";
-    if(item.kind === "cross") return "Dotted Line";
-    return "Balanced Line";
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
-function lineTooltipText(item) {
-    if(item.recovery) return "Positive action growth reconnecting the bridge.";
-    if(item.intervention && item.kind === "cross") return item.activeIntervention ? "Indirect spread: the bad action moves through side effects and weakens the surrounding network." : "Old indirect spread kept as a grey memory.";
-    if(item.intervention) return item.activeIntervention ? "Direct impact: the human action pulls strongly on the bridge structure." : "Old direct impact kept as a grey memory.";
-    if(item.kind === "cross") return "Light side connection: an indirect, sensitive root network around the bridge.";
-    return "Stable main structure: a direct, carrying root connection of the bridge.";
+function tooltipRows(rows) {
+    return rows
+        .filter(row => row && row.value !== null && row.value !== undefined && row.value !== "")
+        .map(row => `<div><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.value)}</div>`)
+        .join("");
+}
+
+function percent(value) {
+    return `${Math.round(clamp(value, 0, 1) * 100)}%`;
+}
+
+function monthName(value) {
+    const names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return names[clamp(Math.round(value || 1), 1, 12) - 1];
+}
+
+function co2MetricLabel() {
+    return metrics.humanCo2Kg < 0 ? "CO2e Reduction" : "CO2e Added";
+}
+
+function co2MetricValue() {
+    const amount = Math.abs(metrics.humanCo2Kg).toFixed(1);
+    return metrics.humanCo2Kg < 0 ? `${amount} kg avoided` : `${amount} kg`;
+}
+
+function dataKeywordForNode(node) {
+    if(!node) return "Data";
+    if(node.layer === "anchorage") return "Anchor / Structural Support";
+    if(node.intervention) return node.activeIntervention ? "Intervention Pollution Layer" : "Past Pollution Trace";
+    if(node.recovery) return "Recovery Root";
+    if(node.seedMode === "support-under") return "Seasonal EMP Sample";
+    if(node.seedMode === "downward") return "EMP Microbial Sample";
+    if(node.seedMode === "bridge") return "Cumulative EMP Sample";
+    if(node.seedMode === "live") {
+        return String(node.source || "").includes("intervention-induced")
+            ? "OTU / Microbial Community"
+            : "Local Environmental Value";
+    }
+    return "Environmental Data";
+}
+
+function readableNodeLabel(node) {
+    if(!node) return "";
+    if(node.layer === "anchorage") return node.side === "left" ? "Left support" : "Right support";
+    return String(node.text || "")
+        .replace(/^\[|\]$/g, "")
+        .replace(/^protective recovery root$/, "clean action")
+        .replace(/^clean branching root$/, "clean branch")
+        .replace(/^stress-induced connective tissue$/, "microbial link");
+}
+
+function nodeTooltipHtml(node) {
+    const keyword = dataKeywordForNode(node);
+    const rows = [
+        { label: "Data Type", value: keyword },
+        { label: "Sample", value: readableNodeLabel(node) },
+        { label: "Location", value: config.locName },
+        { label: "Year / Month", value: `${node.dataYear || config.year} / ${monthName(config.month)}` }
+    ];
+
+    if(node.layer === "anchorage") {
+        rows.push(
+            { label: "Role", value: "Fixed point holding the bridge shape" },
+            { label: "Support Spread", value: `${Math.round(metrics.anchorSpread)}px` }
+        );
+    } else if(node.intervention) {
+        rows.push(
+            { label: co2MetricLabel(), value: co2MetricValue() },
+            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
+        );
+    } else if(node.recovery) {
+        rows.push(
+            { label: "Positive Action", value: `${recoveryActionCount} roots` },
+            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
+        );
+    } else {
+        rows.push(
+            { label: "Temperature", value: `${metrics.airTemp.toFixed(1)}°C` },
+            { label: "Fine Dust", value: `${metrics.pm25.toFixed(1)} µg/m³` },
+            { label: "Coarse Dust", value: `${metrics.pm10.toFixed(1)} µg/m³` },
+            { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
+        );
+        if(node.seedMode === "support-under") {
+            rows.push({ label: "Seasonal Activity", value: percent(microbialSeasonActivity()) });
+        }
+    }
+
+    return tooltipRows(rows);
+}
+
+function lineTooltipTitle(item) {
+    if(item.supportUnder) return "Seasonal EMP Sample";
+    if(item.seasonalBaseSupport) return "Below-Support Growth";
+    if(item.recovery) return "Recovery Root";
+    if(item.intervention) return item.activeIntervention ? "Intervention Pollution Layer" : "Past Pollution Trace";
+    if(item.kind === "cross") return "OTU / Microbial Link";
+    return "Structural Link";
+}
+
+function lineTooltipRows(item) {
+    const isSupportRoot = item && !item.kind && item.source && item.target;
+    if(item.supportUnder || item.seasonalBaseSupport) {
+        return [
+            { label: "Data Type", value: lineTooltipTitle(item) },
+            { label: "Seasonal Activity", value: percent(microbialSeasonActivity()) },
+            { label: "Month", value: monthName(config.month) }
+        ];
+    }
+    if(item.recovery) {
+        return [
+            { label: "Data Type", value: "Recovery Root" },
+            { label: "Positive Action", value: `${recoveryActionCount} roots` },
+            { label: "State", value: "Reconnecting while reducing pollution traces" }
+        ];
+    }
+    if(item.intervention) {
+        return [
+            { label: "Data Type", value: item.activeIntervention ? "Intervention Pollution Layer" : "Past Pollution Trace" },
+            { label: co2MetricLabel(), value: co2MetricValue() },
+            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
+        ];
+    }
+    if(isSupportRoot) {
+        return [
+            { label: "Data Type", value: "Anchor / Structural Support" },
+            { label: "Role", value: "Support line holding the bridge shape" },
+            { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
+        ];
+    }
+    return [
+        { label: "Data Type", value: item.kind === "cross" ? "OTU / Microbial Link" : "Cumulative EMP Link" },
+        { label: "Temperature", value: `${metrics.airTemp.toFixed(1)}°C` },
+        { label: "Fine Dust", value: `${metrics.pm25.toFixed(1)} µg/m³` },
+        { label: "Coarse Dust", value: `${metrics.pm10.toFixed(1)} µg/m³` },
+        { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
+    ];
 }
 
 function attachLineTooltip(pathSelection) {
     pathSelection
         .on("mouseover", function(event, d) {
             tooltip.style("display", "block")
-                .html(`<strong>${lineTooltipTitle(d)}</strong><br>${lineTooltipText(d)}`);
+                .html(tooltipRows(lineTooltipRows(d)));
         })
         .on("mousemove", function(event) {
             tooltip.style("left", `${event.pageX + 14}px`).style("top", `${event.pageY - 36}px`);
@@ -1503,7 +1741,7 @@ function seasonalSupportTargetFor(node, seedKey) {
 }
 
 function seasonalSupportSourceNodes(activity) {
-    const targetCount = activity < 0.28 ? 0 : activity < 0.55 ? 2 : activity < 0.82 ? 4 : 6;
+    const targetCount = activity < 0.22 ? 0 : activity < 0.45 ? 4 : activity < 0.68 ? 7 : activity < 0.86 ? 10 : 12;
     if(!targetCount) return [];
     return ["left", "right"].flatMap(side => {
         const anchor = rootNodes.find(node => node.layer === "anchorage" && node.side === side);
@@ -1591,6 +1829,8 @@ function growSupportUnderground(support, seedMode) {
             seedMode: "support-under",
             seedKey
         };
+        node.baseX = node.x;
+        node.baseY = node.y;
 
         rootNodes.push(node);
         addBridgeLink(parentNode, node, "cross");
@@ -1652,13 +1892,9 @@ function pullRootsWithAnchor(anchorNode, dx, dy) {
 function drawNode(node) {
     const group = nodeLayer.append("g").datum(node).attr("class", `root-node root-fresh ${node.layer}-node`).attr("transform", `translate(${node.x}, ${node.y})`);
     const radius = node.recovery ? (node.recoveryOffshoot ? 2.0 : 3.2) : (node.intervention ? 4.1 : (node.layer === "anchorage" ? 5.5 : node.layer === "primary" ? 3.6 : node.layer === "mesh" ? 2.6 : 2.1));
-    group
-        .on("pointerdown.block-zoom mousedown.block-zoom touchstart.block-zoom", function(event) {
-            event.stopPropagation();
-        });
     
     const dot = group.append("circle").attr("class", "root-dot-node root-fresh")
-        .attr("r", 0.1)
+        .attr("r", radius)
         .style("fill", getNodeRootColor(node))
         .style("stroke", getNodeRootColor(node))
         .style("stroke-width", node.layer === "anchorage" ? 1.4 : 0.6)
@@ -1671,12 +1907,12 @@ function drawNode(node) {
                 .attr("r", d.layer === "anchorage" ? radius * 1.18 : radius)
                 .style("opacity", 1)
                 .style("stroke-width", d.layer === "anchorage" ? 2.1 : 1.15);
-            tooltip.style("display", "block").html(`<strong>Position System:</strong> ${d.source}<br><strong>Identifier:</strong> ${d.text}<br><strong>Cumulative Stress Index:</strong> ${(metrics.stressLevel * 100).toFixed(0)}%`);
+            tooltip.style("display", "block").html(nodeTooltipHtml(d));
         })
         .on("mousemove", function(e) { tooltip.style("left", `${e.pageX - 180}px`).style("top", `${e.pageY - 70}px`); })
         .on("mouseleave", function(e, d) {
             const parent = d3.select(this.parentNode);
-            if(!parent.classed("anchor-dragging") && !parent.classed("root-dragging")) {
+            if(!parent.classed("anchor-dragging")) {
                 d3.select(this)
                     .transition()
                     .duration(160)
@@ -1687,17 +1923,11 @@ function drawNode(node) {
             tooltip.style("display", "none");
         });
 
-    if(bulkRenderDepth) {
-        dot.attr("r", radius);
-    } else {
-        dot.transition()
-            .duration(node.recovery ? 420 : (node.intervention ? 260 : 220))
-            .ease(d3.easeCubicOut)
-            .attr("r", radius);
-    }
-
     if(node.layer === "anchorage") {
         group.style("cursor", "move")
+            .on("pointerdown.block-zoom mousedown.block-zoom touchstart.block-zoom", function(event) {
+                event.stopPropagation();
+            })
             .call(d3.drag()
                 .on("start", function(event) {
                     if(event.sourceEvent) event.sourceEvent.stopPropagation();
@@ -1743,77 +1973,7 @@ function drawNode(node) {
                 }));
         group.raise();
     } else {
-        group.style("cursor", "grab")
-            .call(d3.drag()
-                .on("start", function(event) {
-                    if(event.sourceEvent) event.sourceEvent.stopPropagation();
-                    draggingRoot = true;
-                    d._dragOriginX = d.x;
-                    d._dragOriginY = d.y;
-                    d3.select(this)
-                        .classed("root-dragging", true)
-                        .raise()
-                        .style("cursor", "grabbing")
-                        .select(".root-dot-node")
-                        .interrupt()
-                        .style("opacity", 1)
-                        .style("stroke-width", 1.25);
-                })
-                .on("drag", function(event, d) {
-                    if(event.sourceEvent) event.sourceEvent.stopPropagation();
-                    d.x = clamp(event.x, canvasMinX(), canvasMaxX());
-                    d.y = clamp(event.y, canvasMinY(), canvasMaxY());
-                    rerenderNodes();
-                    rerenderLinks();
-                    rerenderSupportRoots();
-                    refreshFormMode();
-                })
-                .on("end", function(event, d) {
-                    if(event.sourceEvent) event.sourceEvent.stopPropagation();
-                    const nodeSelection = d3.select(this);
-                    const startX = d.x;
-                    const startY = d.y;
-                    const targetX = Number.isFinite(d._dragOriginX) ? d._dragOriginX : d.x;
-                    const targetY = Number.isFinite(d._dragOriginY) ? d._dragOriginY : d.y;
-                    const ease = d3.easeElasticOut && d3.easeElasticOut.period
-                        ? d3.easeElasticOut.period(0.48)
-                        : d3.easeCubicOut;
-
-                    nodeSelection
-                        .classed("root-dragging", false)
-                        .style("cursor", "grab")
-                        .select(".root-dot-node")
-                        .transition()
-                        .duration(180)
-                        .style("opacity", getNodeOpacity(d))
-                        .style("stroke-width", 0.6);
-
-                    d3.select({ t: 0 })
-                        .transition()
-                        .duration(680)
-                        .ease(ease)
-                        .tween("root-return", () => t => {
-                            d.x = startX + (targetX - startX) * t;
-                            d.y = startY + (targetY - startY) * t;
-                            rerenderNodes();
-                            rerenderLinks();
-                            rerenderSupportRoots();
-                            refreshFormMode();
-                        })
-                        .on("end", () => {
-                            d.x = targetX;
-                            d.y = targetY;
-                            delete d._dragOriginX;
-                            delete d._dragOriginY;
-                            draggingRoot = false;
-                            rerenderNodes();
-                            rerenderLinks();
-                            rerenderSupportRoots();
-                            refreshFormMode();
-                            svg.call(zoom.transform, currentZoomTransform);
-                            raiseAnchorNodes();
-                        });
-                }));
+        group.style("cursor", "default");
     }
     raiseAnchorNodes();
 }
@@ -1909,7 +2069,8 @@ function updateGrowthEngine() {
     if(rootNodes.length >= MAX_NODES) return;
     
     const modeBoost = config.growthMode === "dense" ? 2.2 : config.growthMode === "quiet" ? -0.7 : 0;
-    const currentSpeed = clamp(1.2 + metrics.stressLevel * 5.0 + modeBoost, 0.5, 12);
+    const climateSpeed = clamp(0.28 + climateGrowthSuitability() * 1.12, 0.28, 1.35);
+    const currentSpeed = clamp((1.2 + metrics.stressLevel * 5.0 + modeBoost) * climateSpeed, 0.25, 12);
     
     const intervalMs = 2800 / currentSpeed;
     growInterval = setInterval(() => createBridgeNode(null, "live"), intervalMs);
@@ -2033,24 +2194,14 @@ function rebuildBridgeLayers() {
     updateMetricMonitor();
 }
 
-function removeAllCumulativeData() {
-    const removedNodes = new Set(rootNodes.filter(node =>
-        node.layer !== "anchorage" &&
-        !node.intervention &&
-        !node.recovery &&
-        Number.isFinite(node.dataYear)
-    ));
-    removeNodesFromCanvas(removedNodes);
-}
-
 function updateBridgeForYearChange(nextYear) {
     updateInterventionState();
     syncEmpMetrics();
-    removeAllCumulativeData();
-    seedCumulativeBridge({ baseFrameOnly: true });
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
+    refreshTemporalRecoveryRoots();
+    applyCumulativeYearMorph();
 }
 
 function scheduleBridgeYearUpdate(nextYear) {
@@ -2133,6 +2284,7 @@ document.getElementById("param-month").addEventListener("input", e => {
     config.month = parseInt(e.target.value, 10);
     syncMonthParameterLimit();
     updateMetricMonitor();
+    refreshSupportUndergrowthForSeason();
     scheduleEnvironmentRefresh();
 });
 
