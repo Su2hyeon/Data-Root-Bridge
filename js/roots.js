@@ -584,8 +584,7 @@ async function loadEmpRows() {
 async function loadOtuRows() {
     if(otuRows.length) return;
     try {
-        const response = await fetch("data/otu_summary.tsv");
-        const text = await response.text();
+        const text = await fetchOtuSummaryText();
         const lines = text.split("\n").slice(0, 760);
         const rows = d3.tsvParseRows(lines.join("\n"));
         const headers = rows[0];
@@ -606,6 +605,27 @@ async function loadOtuRows() {
 
         if(otuRows.length) metrics.otuCount = otuRows.length;
     } catch(error) { console.warn("Failed to load OTU data", error); }
+}
+
+async function fetchOtuSummaryText() {
+    try {
+        const response = await fetch("data/otu_summary.tsv.gz");
+        if(!response.ok) throw new Error(`OTU gzip request failed: ${response.status}`);
+
+        const contentEncoding = response.headers.get("content-encoding");
+        if(contentEncoding && contentEncoding.includes("gzip")) return await response.text();
+        if(!("DecompressionStream" in window) || !response.body) {
+            throw new Error("This browser cannot decompress local gzip data.");
+        }
+
+        const stream = response.body.pipeThrough(new DecompressionStream("gzip"));
+        return await new Response(stream).text();
+    } catch(gzipError) {
+        console.warn("Falling back to uncompressed OTU data", gzipError);
+        const response = await fetch("data/otu_summary.tsv");
+        if(!response.ok) throw new Error(`OTU TSV request failed: ${response.status}`);
+        return await response.text();
+    }
 }
 
 function syncEmpMetrics() {
