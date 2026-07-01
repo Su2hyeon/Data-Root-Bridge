@@ -2088,7 +2088,7 @@ function updateGrowthEngine() {
     if(config.paused) return;
     if(rootNodes.length >= MAX_NODES) return;
     
-    const modeBoost = config.growthMode === "dense" ? 2.2 : config.growthMode === "quiet" ? -0.7 : 0;
+    const modeBoost = config.growthMode === "dense" ? 2.2 : 0;
     const climateSpeed = clamp(0.28 + climateGrowthSuitability() * 1.12, 0.28, 1.35);
     const currentSpeed = clamp((1.2 + metrics.stressLevel * 5.0 + modeBoost) * climateSpeed, 0.25, 12);
     
