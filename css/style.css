@@ -232,6 +232,11 @@ body.metrics-ready #data-monitor {
     color: var(--globe-brown) !important;
 }
 
+:root[data-color-stage="5"] .monitor-row .val.metric-changed span,
+:root[data-color-stage="6"] .monitor-row .val.metric-changed span {
+    color: var(--root-intervention-color) !important;
+}
+
 /* 구버전 고정 위치 지정자들 완벽 초기화 */
 .monitor-row:nth-child(1), .monitor-row:nth-child(2), .monitor-row:nth-child(3),
 .monitor-row:nth-child(4), .monitor-row:nth-child(5), .monitor-row:nth-child(6),
@@ -753,7 +758,7 @@ body.metrics-ready #data-monitor {
     width: min(46vw, 720px);
     background: transparent;
     border: 0;
-    color: var(--text-main);
+    color: var(--globe-brown);
     font-family: "DataRootGrotesk", sans-serif;
     font-weight: 400;
     font-size: 9pt;
