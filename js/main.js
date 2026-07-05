@@ -1,23 +1,11 @@
-function stagedColor(prefix, position, fallback) {
-    const value = clamp(position, 1, 5);
-    const lowerStage = Math.floor(value);
-    const upperStage = Math.ceil(value);
-    const lowerColor = cssColor(`--${prefix}-stage-${lowerStage}`, fallback);
-    const upperColor = cssColor(`--${prefix}-stage-${upperStage}`, lowerColor);
-    if(lowerStage === upperStage) return lowerColor;
-    return mixCssColor(lowerColor, upperColor, value - lowerStage);
-}
+const COLOR_STAGE_MIN = 1;
+const COLOR_STAGE_MAX = 7;
+const COLOR_STAGE_NORMAL = 4;
+const COLOR_SCORE_RANGE = 7.5;
 
 function colorScoreToStage(score) {
-    if(score >= 5) return 5;
-    if(score === 4) return 4;
-    if(score <= -5) return 1;
-    if(score === -4) return 2;
-    return 3;
-}
-
-function colorScoreToPosition(score) {
-    return colorScoreToStage(score);
+    const stageOffset = (clamp(score, -COLOR_SCORE_RANGE, COLOR_SCORE_RANGE) / COLOR_SCORE_RANGE) * (COLOR_STAGE_MAX - COLOR_STAGE_NORMAL);
+    return Math.round(clamp(COLOR_STAGE_NORMAL + stageOffset, COLOR_STAGE_MIN, COLOR_STAGE_MAX));
 }
 
 function getColorScore() {
@@ -29,34 +17,90 @@ function getColorScore() {
 function updateColorState() {
     const colorScore = getColorScore();
     const colorStage = colorScoreToStage(colorScore);
-    const colorPosition = colorScoreToPosition(colorScore);
-    const colorStateKey = `${colorStage}:${colorPosition.toFixed(3)}`;
+    const colorStateKey = `${colorStage}`;
     if(colorStateKey === lastColorStateKey) return;
     lastColorStateKey = colorStateKey;
     lastBrightnessStateKey = "";
-    const rootColor = stagedColor("root", colorPosition, "#FF5E63");
-    const interventionRootColor = stagedColor("root-intervention", colorPosition, rootColor);
-    const recoveryRootColor = stagedColor("root-recovery", colorPosition, rootColor);
-    const pixelRootColor = stagedColor("pixel-root", colorPosition, rootColor);
-    const root = document.documentElement;
-    root.style.setProperty("--bg-white", cssColor(`--bg-stage-${colorStage}`, cssColor("--bg-stage-3", "#f0f0f0")));
-    root.style.setProperty("--text-main", stagedColor("text", colorPosition, "#a7a7a7"));
-    root.style.setProperty("--text-dark", stagedColor("text", colorPosition, "#a7a7a7"));
-    root.style.setProperty("--muted", stagedColor("text", colorPosition, "#a7a7a7"));
-    root.style.setProperty("--globe-brown", stagedColor("globe", colorPosition, "#A7BA70"));
-    root.style.setProperty("--root-fresh-color", rootColor);
-    root.style.setProperty("--root-fresh-dark-color", rootColor);
-    root.style.setProperty("--root-aged-color", rootColor);
-    root.style.setProperty("--root-aged-dark-color", rootColor);
-    root.style.setProperty("--root-intervention-color", interventionRootColor);
-    root.style.setProperty("--root-intervention-old-color", rootColor);
-    root.style.setProperty("--root-recovery-color", recoveryRootColor);
-    root.style.setProperty("--root-recovery-old-color", rootColor);
-    root.style.setProperty("--pixel-root-color", pixelRootColor);
-    root.style.setProperty("--pixel-anchor-color", `color-mix(in srgb, ${pixelRootColor} 60%, black)`);
-    root.style.setProperty("--pixel-number-color", stagedColor("pixel-number", colorPosition, "#3f3f3f"));
-    root.style.setProperty("--border-color", "rgba(79, 164, 246, 0.22)");
+    document.documentElement.dataset.colorStage = String(colorStage);
 }
+
+function copySvgComputedStyles(sourceNode, targetNode) {
+    if (sourceNode.nodeType !== Node.ELEMENT_NODE || targetNode.nodeType !== Node.ELEMENT_NODE) return;
+
+    const computed = window.getComputedStyle(sourceNode);
+    [
+        "fill",
+        "fill-opacity",
+        "stroke",
+        "stroke-opacity",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "opacity",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "text-anchor",
+        "dominant-baseline"
+    ].forEach(prop => targetNode.style.setProperty(prop, computed.getPropertyValue(prop)));
+
+    Array.from(sourceNode.children).forEach((child, index) => {
+        copySvgComputedStyles(child, targetNode.children[index]);
+    });
+}
+
+function exportRootImage() {
+    const sourceSvg = document.querySelector("#root-canvas svg");
+    if (!sourceSvg) return;
+
+    const clonedSvg = sourceSvg.cloneNode(true);
+    copySvgComputedStyles(sourceSvg, clonedSvg);
+    clonedSvg.querySelectorAll(".pixel-root-number").forEach(label => label.remove());
+    clonedSvg.querySelectorAll(".anchor-label").forEach(label => label.remove());
+
+    const exportWidth = sourceSvg.clientWidth || width;
+    const exportHeight = sourceSvg.clientHeight || height;
+    clonedSvg.setAttribute("width", exportWidth);
+    clonedSvg.setAttribute("height", exportHeight);
+    clonedSvg.setAttribute("viewBox", `0 0 ${exportWidth} ${exportHeight}`);
+    clonedSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+    const serializedSvg = new XMLSerializer().serializeToString(clonedSvg);
+    const svgBlob = new Blob([serializedSvg], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+
+    image.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = exportWidth;
+        canvas.height = exportHeight;
+
+        const context = canvas.getContext("2d");
+        context.fillStyle = window.getComputedStyle(document.documentElement).getPropertyValue("--bg-white").trim() || "#ffffff";
+        context.fillRect(0, 0, exportWidth, exportHeight);
+        context.drawImage(image, 0, 0);
+        URL.revokeObjectURL(svgUrl);
+
+        const link = document.createElement("a");
+        link.download = `data-root-bridge-${config.year}-${String(config.month).padStart(2, "0")}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+    };
+
+    image.onerror = () => URL.revokeObjectURL(svgUrl);
+    image.src = svgUrl;
+}
+
+function setupRootExportButton() {
+    const saveButton = document.getElementById("btn-save-root");
+    if (!saveButton) return;
+    saveButton.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        exportRootImage();
+    });
+}
+
 
 window.onload = async () => {
     syncMonthParameterLimit();
@@ -68,6 +112,7 @@ window.onload = async () => {
     setupPixelFormToggle();
     setupInfoPanelToggle();
     setupMapToggle();
+    setupRootExportButton();
     setupEcosystemInteractions();
 };
 
