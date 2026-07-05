@@ -16,7 +16,9 @@
     <div id="main-container">
         
         <div class="top-ui-wrapper">
-            <div id="info-logo" class="section-title" role="button" tabindex="0">Data Root Bridge</div>
+            <div class="top-title-row">
+                <div id="info-logo" class="section-title" role="button" tabindex="0">Data Root Bridge</div>
+            </div>
             
             <div id="data-monitor">
                 <div class="monitor-row"><span>Target</span><span>Country</span><span id="txt-loc" class="val"><span>Weimar,</span><span>Germany</span></span></div>
@@ -85,7 +87,7 @@
                 <div class="control-group pollution-control">
                     <label class="control-label">Pollution Value</label>
                     <input type="range" id="param-pollution" class="slider" min="-8" max="8" step="1" value="0">
-                    <div class="slider-ticks pollution-ticks"><span>Clean</span><span>0</span><span>Pollution</span></div>
+                    <div class="slider-ticks pollution-ticks"><span>Healthy</span><span>Stressed</span><span>Collapsed</span></div>
                 </div>
 
                 <div class="control-group timeline-control">
@@ -100,12 +102,12 @@
                     <div class="slider-ticks"><span>Jan</span><span>Apr</span><span>Aug</span><span>Dec</span></div>
                 </div>
                 
-                <div id="bridge-toolbar">
+                <div id="bridge-toolbar" class="control-group controls-control">
+                    <label class="control-label">Controls</label>
                     <div class="toolbar-actions">
                         <span id="txt-zoom">100%</span>
-                        <button type="button" class="mode-btn active" data-value="auto">AUTO</button>
-                        <button type="button" class="mode-btn" data-value="dense">DENSE</button>
                         <button type="button" class="mode-btn" id="btn-pixel-form" title="Pixel root form">PIXEL</button>
+                        <button type="button" class="mode-btn" id="btn-save-root" title="Save root image">SAVE</button>
                         <button type="button" class="mode-btn" id="btn-pause-growth" title="Pause growth">PAUSE</button>
                         <button type="button" class="icon-btn" id="btn-clear-bridge" title="Clear bridge">DELETE</button>
                     </div>
@@ -116,6 +118,7 @@
             <div id="map"></div>
             <div id="root-canvas"></div>
             <div id="custom-tooltip"></div>
+            <div id="reaction-log" aria-live="polite"></div>
         </div>
 
     </div>
@@ -126,8 +129,8 @@
     
     <div class="info-content-container">
         <section class="info-intro">
-            <h1>Data Root Bridge</h1>
-            <p>Data Root Bridge is a live interactive project that connects India's Living Root Bridges with microbial data. It shows how our small everyday choices affect the Earth's hidden ecosystem. As you change the parameters, the root bridge grows and changes in real time. This project makes invisible ecological networks visible, helping us shift from a human-centered view to a nature-centered way of thinking.</p>
+            <h1 id="info-overlay-logo" role="button" tabindex="0">Data Root Bridge</h1>
+            <p>Data Root Bridge is a live interactive data architecture that connects India's Living Root Bridges with microbial data. It shows how our small everyday choices affect the Earth's hidden ecosystem. As you change the parameters, the root bridge grows and changes in real time. This project makes invisible ecological networks visible, helping us shift from a human-centered view to a nature-centered way of thinking.</p>
         </section>
 
         <section class="info-section info-visual">
