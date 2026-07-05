@@ -1075,25 +1075,11 @@ window.addEventListener("resize", resizeCanvas);
 // --- 6. Bridge structure guide rendering ---
 function renderBridgeGuides() {
     guideLayer.selectAll("*").remove();
-    const { leftX, rightX, topY, midY, deckY } = getBridgeGeometry();
+    const { leftX, rightX, midY } = getBridgeGeometry();
     const leftAnchor = rootNodes.find(node => node.layer === "anchorage" && node.side === "left");
     const rightAnchor = rootNodes.find(node => node.layer === "anchorage" && node.side === "right");
     const guideLeftX = leftAnchor ? leftAnchor.x : leftX;
     const guideRightX = rightAnchor ? rightAnchor.x : rightX;
-    const guideMidY = mean([leftAnchor ? leftAnchor.y : midY, rightAnchor ? rightAnchor.y : midY]) || midY;
-    const sagPx = height * metrics.bridgeSag;
-    const growthState = bridgeGrowthState();
-
-    // Guide lines become more visible once human intervention is present.
-    const guideOpacity = growthState === "recovery" ? 0.16 : (growthState === "pollution" ? 0.08 : 0.012);
-
-    [topY, midY, deckY].forEach((y) => {
-        const offsetY = y - midY;
-        guideLayer.append("path")
-            .attr("class", "bridge-guide")
-            .attr("d", `M${guideLeftX},${guideMidY + offsetY} C${width * 0.34},${guideMidY + offsetY + sagPx} ${width * 0.66},${guideMidY + offsetY + sagPx} ${guideRightX},${guideMidY + offsetY}`)
-            .style("stroke-opacity", guideOpacity);
-    });
 
     [
         { x: guideLeftX, y: leftAnchor ? leftAnchor.y : midY, label: "ANCHOR_TREE_LEFT", side: "left" },
@@ -1675,6 +1661,39 @@ function removeHumanActionRoots() {
         .remove();
     supportLayer.selectAll(".edge-support-root-hit")
         .filter(d => d && (d.intervention || d.recovery || removedNodes.has(d.source)))
+        .remove();
+    refreshFormMode();
+}
+
+function removeInterventionActionRoots() {
+    const removedNodes = new Set(rootNodes.filter(node => node.intervention));
+    if(!removedNodes.size) return;
+
+    rootNodes = rootNodes.filter(node => !removedNodes.has(node));
+    rootLinks = rootLinks.filter(link =>
+        !link.intervention &&
+        !removedNodes.has(link.source) &&
+        !removedNodes.has(link.target)
+    );
+    supportRoots = supportRoots.filter(support =>
+        !support.intervention &&
+        !removedNodes.has(support.source)
+    );
+
+    nodeLayer.selectAll(".root-node")
+        .filter(d => removedNodes.has(d))
+        .remove();
+    linkLayer.selectAll(".root-link")
+        .filter(d => d && (d.intervention || removedNodes.has(d.source) || removedNodes.has(d.target)))
+        .remove();
+    linkLayer.selectAll(".root-link-hit")
+        .filter(d => d && (d.intervention || removedNodes.has(d.source) || removedNodes.has(d.target)))
+        .remove();
+    supportLayer.selectAll(".edge-support-root")
+        .filter(d => d && (d.intervention || removedNodes.has(d.source)))
+        .remove();
+    supportLayer.selectAll(".edge-support-root-hit")
+        .filter(d => d && (d.intervention || removedNodes.has(d.source)))
         .remove();
     refreshFormMode();
 }
@@ -2612,17 +2631,12 @@ function handleCounterChange(type, delta) {
     updateInterventionState();
     const currentManualValue = manualInterventionCount();
     if(currentManualValue > 0 && previousManualValue <= 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
+        removeInterventionActionRoots();
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(currentManualValue), type);
         previousOverlayCount = 0;
-    } else if(currentManualValue >= 0 && previousManualValue < 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
-        previousOverlayCount = 0;
-        resetActionMorphToBase();
     } else if(currentManualValue === 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
+        removeInterventionActionRoots();
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(0), type);
         previousOverlayCount = 0;
         resetActionMorphToBase();
     }
@@ -2771,7 +2785,8 @@ function recoveryRootTargetForValue(value) {
 }
 
 function reliefRecoveryTargetForValue(value) {
-    if(value <= 0) return 0;
+    if(value < 0) return 0;
+    if(value === 0) return 8;
     const stressValue = clamp(value, 0, 8);
     const relief = clamp((8 - stressValue) / 8, 0, 1);
     return Math.round(relief * 18);
@@ -2783,17 +2798,12 @@ function applyPollutionPreview(value) {
     distributePollutionPreview(value);
     updateInterventionState();
     if(value > 0 && previousManualValue <= 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
+        removeInterventionActionRoots();
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(value), "preview");
         previousOverlayCount = 0;
-    } else if(value >= 0 && previousManualValue < 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
-        previousOverlayCount = 0;
-        resetActionMorphToBase();
     } else if(value === 0) {
-        removeHumanActionRoots();
-        recoveryActionCount = 0;
+        removeInterventionActionRoots();
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(0), "preview");
         previousOverlayCount = 0;
         resetActionMorphToBase();
     }
@@ -2807,7 +2817,7 @@ function applyPollutionPreview(value) {
         const previewRecoveryCount = recoveryRootTargetForValue(value);
         syncRecoveryRootsToCount(previewRecoveryCount, "preview");
         dissolveInterventionRoots(Math.min(RECOVERY_DISSOLVE_NODES, Math.abs(value) + 1));
-    } else if(value > 0 && value < previousManualValue) {
+    } else if(value >= 0) {
         syncRecoveryRootsToCount(reliefRecoveryTargetForValue(value), "preview");
     }
     metrics.lastIntervention = `Preview pollution value ${value}: intervention counters distributed automatically.`;
