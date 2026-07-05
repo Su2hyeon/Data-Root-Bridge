@@ -166,18 +166,12 @@ body.info-open.metrics-ready #data-monitor {
     z-index: 46;
     border: 0;
     background: transparent;
-    color: var(--globe-brown);
+    color: var(--text-main);
     font-family: "DataRootGrotesk", sans-serif;
     font-size: 10pt;
     font-weight: 400;
     padding: 0;
     cursor: pointer;
-}
-
-#btn-save-root:hover,
-#btn-save-root:focus-visible {
-    color: var(--globe-brown);
-    outline: none;
 }
 
 #data-monitor { 
