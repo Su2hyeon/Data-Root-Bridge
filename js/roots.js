@@ -4,14 +4,19 @@ const START_YEAR = 2000;
 const DEFAULT_BRIGHTNESS = 100;
 const MAX_NODES = 760;
 const CUMULATIVE_BASE_NODES = 210;
+const MAX_LIVE_MICROBE_NODES = 280;
+const LIVE_GROWTH_MIN_INTERVAL_MS = 420;
 const INTERVENTION_COLOR = "#50ACFF";
 const OLD_INTERVENTION_COLOR = "#8e969a";
 const RECOVERY_COLOR = "#3f6f64";
 const RECOVERY_OLD_COLOR = "#7b8d88";
 const MAX_RECOVERY_ACTIONS = 180;
-const RECOVERY_BURST_ROOTS = 10;
-const RECOVERY_DISSOLVE_NODES = 12;
+const RECOVERY_BURST_ROOTS = 30;
+const RECOVERY_TARGET_ROOTS = 180;
+const RECOVERY_DISSOLVE_NODES = 15;
 const MAX_SUPPORT_UNDERGROWTH_NODES = 80;
+const STAGE_WIDTH = 1920;
+const STAGE_HEIGHT = 1200;
 const EMISSION_FACTORS = {
     transportKmPerUse: 10,
     carKgCo2PerKm: 0.21,
@@ -96,6 +101,21 @@ let recoveryActionCount = 0;
 let bulkRenderDepth = 0;
 let lastColorStateKey = "";
 let lastBrightnessStateKey = "";
+
+function syncStageScale() {
+    const useFixedStage = window.innerWidth >= STAGE_WIDTH && window.innerHeight >= STAGE_HEIGHT;
+    document.body.classList.toggle("imac-stage", useFixedStage);
+    document.documentElement.style.setProperty("--stage-width", useFixedStage ? `${STAGE_WIDTH}px` : "100vw");
+    document.documentElement.style.setProperty("--stage-height", useFixedStage ? `${STAGE_HEIGHT}px` : "100vh");
+    document.documentElement.style.setProperty(
+        "--stage-scale",
+        useFixedStage ? String(Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT)) : "1"
+    );
+}
+
+syncStageScale();
+window.addEventListener("resize", syncStageScale);
+
 let baseBridgeShape = {
     bridgeSpan: metrics.bridgeSpan,
     bridgeSag: metrics.bridgeSag,
@@ -170,7 +190,16 @@ function bridgeGrowthState() {
 
 function getInterventionOverlayCount() {
     if(!hasManualIntervention()) return 0;
-    return Math.round(clamp(positiveInterventionCount() * 4 + Math.max(0, metrics.humanCo2Kg) * 0.2, 0, 90));
+    const collapseReduction = 1 - clamp(contractionStrength() * 0.42, 0, 0.46);
+    return Math.round(clamp(
+        (
+            positiveInterventionCount() * 8 +
+            Math.max(0, metrics.humanCo2Kg) * 0.42 +
+            Math.max(0, metrics.plasticWasteKg) * 18
+        ) * collapseReduction,
+        0,
+        96
+    ));
 }
 
 function currentInterventionNodeCount() {
@@ -292,6 +321,71 @@ function cssNumber(name, fallback) {
 
 function interventionOpacity(kind, active) {
     return cssNumber(`--intervention-${kind}-${active ? "active" : "trace"}-opacity`, active ? 0.9 : 0.12);
+}
+
+function interventionPressureScale() {
+    return clamp(positiveInterventionCount() / 10 + metrics.stressLevel * 0.55, 0, 1.1);
+}
+
+function contractionStrength() {
+    if(positiveInterventionCount() <= 0) return 0;
+    const manualCollapse = clamp(positiveInterventionCount() / 4.5, 0, 1);
+    const humanLoad = clamp(Math.max(0, metrics.humanCo2Kg) / 22 + Math.max(0, metrics.plasticWasteKg) * 0.35, 0, 1);
+    const backgroundStress = clamp((metrics.stressLevel - 0.72) * 0.28 + (metrics.decay - 0.62) * 0.18, 0, 0.18);
+    const historicalRelief = clamp((1 - getYearProgress()) * 1.15, 0, 0.92);
+    return clamp((manualCollapse * 0.78 + humanLoad * 0.28 + backgroundStress) * (1 - historicalRelief), 0, 1.2);
+}
+
+function interventionStepDetail() {
+    return Math.log1p(Math.abs(manualInterventionCount()));
+}
+
+function recoveryCollapseFactor() {
+    return clamp(contractionStrength() - negativeInterventionCount() * 0.08, 0, 1);
+}
+
+function shouldHideCollapsedRecovery(item) {
+    if(!item || !item.recovery) return false;
+    const collapse = recoveryCollapseFactor();
+    if(collapse < 0.68) return false;
+    const seed = item.seedKey || (item.source && item.source.seedKey) || item.id || "recovery";
+    const threshold = item.recoveryOffshoot || item.kind === "recovery-offshoot" ? 0.68 : 0.28;
+    return stableRand(seed, 118) < clamp((collapse - 0.68) / 0.32, 0, 1) * threshold;
+}
+
+function getLinkStrokeWidth(link, aged = false) {
+    if(!link) return 0.6;
+    const pressure = interventionPressureScale();
+    if(link.intervention) return link.activeIntervention ? 1.12 + pressure * 0.26 : 0.58;
+    if(link.recovery) return link.kind === "recovery-offshoot" ? 0.9 : 1.45;
+    if(link.kind === "microbe") return aged ? 0.5 : 0.7 + metrics.stressLevel * 0.18;
+    if(link.kind === "cross") return aged ? 0.38 : 0.46;
+    return aged ? 0.82 + metrics.stressLevel * 0.16 : 1.18 + metrics.stressLevel * 0.46;
+}
+
+function getLinkStrokeOpacity(link, aged = false) {
+    if(!link) return 0.2;
+    if(link.recovery) return (aged ? 0.48 : 0.78) * (1 - recoveryCollapseFactor() * (link.kind === "recovery-offshoot" ? 0.62 : 0.38));
+    if(link.intervention) return interventionOpacity(aged ? "aged-line" : "line", link.activeIntervention);
+    if((link.source && link.source.seedMode === "support-under") || (link.target && link.target.seedMode === "support-under")) return aged ? 0.5 : 0.72;
+    if(link.kind === "microbe") return aged ? 0.34 : 0.48;
+    if(link.kind === "cross") return aged ? 0.28 : 0.42;
+    return aged ? getAgedRootOpacity() * 0.62 : 0.58 + metrics.stressLevel * 0.22;
+}
+
+function getSupportStrokeWidth(support) {
+    if(!support) return 0.48;
+    if(support.intervention) return support.activeIntervention ? 0.82 + interventionPressureScale() * 0.18 : 0.42;
+    if(support.recovery) return 0.72;
+    return support.supportUnder || support.seasonalBaseSupport ? 0.42 : 0.5;
+}
+
+function getSupportStrokeOpacity(support, aged = false) {
+    if(!support) return 0.16;
+    if(support.intervention) return interventionOpacity(aged ? "aged-support" : "support", support.activeIntervention);
+    if(support.recovery) return (aged ? 0.32 : 0.4) * (1 - recoveryCollapseFactor() * 0.55);
+    if(support.supportUnder || support.seasonalBaseSupport) return aged ? 0.52 : 0.74;
+    return aged ? 0.14 : 0.22;
 }
 
 function nextOtu() {
@@ -455,6 +549,64 @@ function climateGrowthSuitability() {
     return clamp(climateScore * (0.42 + polarScore * 0.58), 0.08, 1);
 }
 
+function biomeSignature(row) {
+    const text = String(row && row.biome ? row.biome : "").toLowerCase();
+    return {
+        forest: /forest|wood|jungle|rainforest|taiga/.test(text),
+        grass: /grass|savanna|shrub|prairie|steppe/.test(text),
+        dry: /desert|arid|dry|xeric|sand/.test(text),
+        water: /marine|freshwater|river|lake|wetland|aquatic|sediment/.test(text),
+        urban: /urban|built|city|anthropogenic|settlement/.test(text),
+        polar: /polar|tundra|ice|glacier|alpine/.test(text)
+    };
+}
+
+function regionalGrowthProfile(row) {
+    const adjusted = getHumanAdjustedMetrics();
+    const biome = biomeSignature(row);
+    const absLat = Math.abs(config.lat);
+    const tropical = absLat < 23.5;
+    const temperate = absLat >= 23.5 && absLat < 55;
+    const polar = absLat >= 55 || biome.polar;
+    const dry = biome.dry || adjusted.soilMoisture < 0.22;
+    const wet = biome.water || adjusted.soilMoisture > 0.52;
+    const forest = biome.forest || (tropical && wet);
+    const urban = biome.urban || metrics.pm25 > 24;
+    const locSeed = `${config.lat.toFixed(2)},${config.lon.toFixed(2)},${config.locName}`;
+    const countryDrift = stableRand(locSeed, 4) - 0.5;
+
+    let profile = {
+        archWeight: 0.34,
+        waveAmp: 44,
+        verticalScatter: 54,
+        horizontalScatter: 62,
+        downwardBias: 0,
+        progressWarp: 1,
+        branchLift: 0,
+        brokenness: 0.12,
+        countryDrift
+    };
+
+    if(forest) {
+        profile = { ...profile, archWeight: 0.18, waveAmp: 82, verticalScatter: 96, horizontalScatter: 78, downwardBias: 34, progressWarp: 0.82, branchLift: -18 };
+    } else if(dry) {
+        profile = { ...profile, archWeight: 0.08, waveAmp: 30, verticalScatter: 34, horizontalScatter: 116, downwardBias: 18, progressWarp: 1.35, brokenness: 0.42 };
+    } else if(polar) {
+        profile = { ...profile, archWeight: 0.06, waveAmp: 22, verticalScatter: 28, horizontalScatter: 92, downwardBias: -8, progressWarp: 1.12, brokenness: 0.28 };
+    } else if(wet) {
+        profile = { ...profile, archWeight: 0.22, waveAmp: 72, verticalScatter: 88, horizontalScatter: 58, downwardBias: 28, progressWarp: 0.9 };
+    } else if(urban) {
+        profile = { ...profile, archWeight: 0.12, waveAmp: 56, verticalScatter: 72, horizontalScatter: 104, downwardBias: -22, progressWarp: 1.22, brokenness: 0.36 };
+    } else if(temperate) {
+        profile = { ...profile, archWeight: 0.26, waveAmp: 52, verticalScatter: 62, horizontalScatter: 70, progressWarp: 1.0 };
+    }
+
+    if(tropical) profile.downwardBias += 18;
+    profile.waveAmp += countryDrift * 34;
+    profile.horizontalScatter += Math.abs(countryDrift) * 28;
+    return profile;
+}
+
 function seasonalSupportUndergrowthCount() {
     const activity = microbialSeasonActivity();
     if(activity < 0.22) return 0;
@@ -507,11 +659,11 @@ function updateInterventionState() {
     metrics.humanPm10Proxy = indirectPmIndex * 0.86;
     metrics.temporalIntervention = temporalIntervention;
 
-    metrics.stressLevel = clamp((totalCo2 + accumulatedEnvironmentalLoad) / 60, 0, 1);
-    metrics.decay = clamp((shoppingCo2 + deliveryCo2 + plasticWaste * 4 + temporalIntervention * 18) / 45, 0, 1);
-    metrics.distortion = clamp((climateCo2 + deliveryCo2 + plasticWaste * 3 + temporalIntervention * 12) / 24, 0, 1);
-    metrics.monopoly = clamp((transportCo2 + temporalIntervention * 10) / 18, 0, 1);
-    metrics.growthPressure = clamp(((totalCo2 + accumulatedEnvironmentalLoad) * 1.25) + (config.streaming * 3), 0, 100);
+    metrics.stressLevel = clamp((totalCo2 + accumulatedEnvironmentalLoad) / 34, 0, 1);
+    metrics.decay = clamp((shoppingCo2 + deliveryCo2 + plasticWaste * 4 + temporalIntervention * 18) / 26, 0, 1);
+    metrics.distortion = clamp((climateCo2 + deliveryCo2 + plasticWaste * 3 + temporalIntervention * 12) / 14, 0, 1);
+    metrics.monopoly = clamp((transportCo2 + temporalIntervention * 10) / 10, 0, 1);
+    metrics.growthPressure = clamp(((totalCo2 + accumulatedEnvironmentalLoad) * 1.8) + (config.streaming * 4.2), 0, 100);
 
     metrics.bridgeSpan = baseBridgeShape.bridgeSpan;
     metrics.bridgeSag = baseBridgeShape.bridgeSag;
@@ -758,6 +910,118 @@ const zoom = d3.zoom()
         document.getElementById("txt-zoom").innerText = `${Math.round(currentZoomTransform.k * 100)}%`;
     });
 svg.call(zoom);
+function cubicPoint(p0, p1, p2, p3, t) {
+    const mt = 1 - t;
+    return {
+        x: mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x,
+        y: mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y
+    };
+}
+
+function distancePointToSegment(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSq = dx * dx + dy * dy;
+    if(lengthSq <= 0.0001) return distanceBetween(point, a);
+    const t = clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq, 0, 1);
+    return distanceBetween(point, { x: a.x + dx * t, y: a.y + dy * t });
+}
+
+function distanceToLinkCurve(point, link) {
+    if(!link || !link.source || !link.target) return Number.POSITIVE_INFINITY;
+    const { source, target, intervention, recovery } = link;
+    const dx = target.x - source.x;
+    const interventionSign = stableRand(`${source.id}-${target.id}`, 42) > 0.5 ? 1 : -1;
+    const recoveryBend = interventionSign * (4 + stableRand(`${source.id}-${target.id}`, 44) * 8);
+    const microbialBend = interventionSign * (22 + stableRand(`${source.id}-${target.id}`, 45) * 86);
+    const bend = recovery
+        ? recoveryBend
+        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (link.kind === "microbe" ? microbialBend : (link.kind === "cross" ? 7 : 18 * metrics.stressLevel)));
+    const p0 = { x: source.x, y: source.y };
+    const p1 = { x: source.x + dx * 0.34, y: source.y + bend };
+    const p2 = { x: source.x + dx * 0.68, y: target.y - bend };
+    const p3 = { x: target.x, y: target.y };
+    let previous = p0;
+    let best = Number.POSITIVE_INFINITY;
+    for(let i = 1; i <= 22; i++) {
+        const next = cubicPoint(p0, p1, p2, p3, i / 22);
+        best = Math.min(best, distancePointToSegment(point, previous, next));
+        previous = next;
+    }
+    return best;
+}
+
+function supportControlPoints(support) {
+    const { source, target, seedKey, intervention, recovery } = support;
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const side = stableRand(seedKey, 81) > 0.5 ? 1 : -1;
+    const curl = (intervention ? 125 : recovery ? 44 : 72) * side;
+    const lift = intervention ? -90 + stableRand(seedKey, 82) * 190 : 42 + stableRand(seedKey, 83) * 120;
+    return [
+        { x: source.x, y: source.y },
+        { x: source.x + dx * 0.22 + curl * 0.35, y: source.y + dy * 0.18 + lift * 0.25 },
+        { x: source.x + dx * 0.72 - curl, y: source.y + dy * 0.78 + lift },
+        { x: target.x, y: target.y }
+    ];
+}
+
+function distanceToSupportCurve(point, support) {
+    if(!support || !support.source || !support.target) return Number.POSITIVE_INFINITY;
+    const [p0, p1, p2, p3] = supportControlPoints(support);
+    let previous = p0;
+    let best = Number.POSITIVE_INFINITY;
+    for(let i = 1; i <= 22; i++) {
+        const next = cubicPoint(p0, p1, p2, p3, i / 22);
+        best = Math.min(best, distancePointToSegment(point, previous, next));
+        previous = next;
+    }
+    return best;
+}
+
+function setupInterventionTraceHover() {
+    svg.on("mousemove.intervention-trace", function(event) {
+        const target = event.target;
+        if(target && target.closest && target.closest(".root-node-hit,.root-node,.root-dot-node")) return;
+        const [sx, sy] = d3.pointer(event, svg.node());
+        const point = currentZoomTransform.invert([sx, sy]);
+        const worldPoint = { x: point[0], y: point[1] };
+        let nearest = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        rootLinks.forEach(link => {
+            if(!link) return;
+            const distance = distanceToLinkCurve(worldPoint, link);
+            if(distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = link;
+            }
+        });
+        supportRoots.forEach(support => {
+            if(!support) return;
+            const distance = distanceToSupportCurve(worldPoint, support);
+            if(distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = support;
+            }
+        });
+        const threshold = 34 / Math.max(0.35, currentZoomTransform.k || 1);
+        if(nearest && nearestDistance <= threshold) {
+            tooltip.style("display", "block")
+                .html(tooltipRows(lineTooltipRows(nearest)))
+                .style("left", `${event.pageX + 14}px`)
+                .style("top", `${event.pageY - 36}px`);
+        } else if(target === svg.node()) {
+            tooltip.style("display", "none");
+        }
+    });
+
+    svg.on("mouseleave.intervention-trace", function() {
+        tooltip.style("display", "none");
+    });
+}
+
+setupInterventionTraceHover();
+
 
 function setupDragZoomControl() {
     const zoomControl = document.getElementById("txt-zoom");
@@ -930,8 +1194,11 @@ function getRecoveryParent(side) {
 }
 
 function connectStructuralNeighbors(node, isIntervened) {
-    const maxLinks = node.intervention ? 2 : (isIntervened ? 3 : 3);
-    const radius = node.intervention ? 190 : (isIntervened ? 150 + metrics.meshAmplitude * 0.35 : 168);
+    const instability = contractionStrength();
+    const maxLinks = node.intervention
+        ? Math.round(clamp(3 - instability * 0.8, 2, 3))
+        : (isIntervened ? Math.round(clamp(3 + instability * 2, 3, 5)) : 3);
+    const radius = node.intervention ? 180 + instability * 28 : (isIntervened ? 150 + metrics.meshAmplitude * 0.35 + instability * 52 : 168);
     const candidates = rootNodes
         .filter(other => other.id !== node.id && other.layer !== "anchorage")
         .filter(other => isIntervened || other.side === node.side)
@@ -1020,6 +1287,15 @@ function refreshInterventionStyles() {
 
     applyBrightness(false);
     linkLayer.selectAll(".root-link")
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
+    supportLayer.selectAll(".edge-support-root")
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
+    nodeLayer.selectAll(".root-node")
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
+    linkLayer.selectAll(".root-link")
         .filter(d => d && d.intervention && d.activeIntervention)
         .raise();
     nodeLayer.selectAll(".root-node")
@@ -1044,7 +1320,9 @@ function removeNodesFromCanvas(removedNodes) {
     supportRoots = supportRoots.filter(support => !removedNodes.has(support.source));
     nodeLayer.selectAll(".root-node").filter(d => removedNodes.has(d)).remove();
     linkLayer.selectAll(".root-link").filter(d => removedNodes.has(d.source) || removedNodes.has(d.target)).remove();
+    linkLayer.selectAll(".root-link-hit").filter(d => removedNodes.has(d.source) || removedNodes.has(d.target)).remove();
     supportLayer.selectAll(".edge-support-root").filter(d => removedNodes.has(d.source)).remove();
+    supportLayer.selectAll(".edge-support-root-hit").filter(d => removedNodes.has(d.source)).remove();
     refreshFormMode();
 }
 
@@ -1058,6 +1336,17 @@ function yearMorphStrength() {
     return 1 - getYearProgress();
 }
 
+function cumulativeYearOffset(node, scale = 1) {
+    const morph = yearMorphStrength();
+    const seedKey = node.seedKey || node.id;
+    const futureWeight = Number.isFinite(node.dataYear) && node.dataYear > config.year ? 1.35 : 0.7;
+    const side = node.side === "left" ? -1 : node.side === "right" ? 1 : (stableRand(seedKey, 61) > 0.5 ? 1 : -1);
+    return {
+        x: side * (stableRand(seedKey, 62) * 42 + 14) * morph * futureWeight * scale,
+        y: (stableRand(seedKey, 63) - 0.24) * 86 * morph * futureWeight * scale
+    };
+}
+
 function applyCumulativeYearMorph() {
     const morph = yearMorphStrength();
     rootNodes.forEach(node => {
@@ -1068,21 +1357,74 @@ function applyCumulativeYearMorph() {
             node.y = node.baseY;
             return;
         }
-        const seedKey = node.seedKey || node.id;
-        const futureWeight = Number.isFinite(node.dataYear) && node.dataYear > config.year ? 1.35 : 0.7;
-        const side = node.side === "left" ? -1 : node.side === "right" ? 1 : (stableRand(seedKey, 61) > 0.5 ? 1 : -1);
-        const driftX = side * (stableRand(seedKey, 62) * 28 + 8) * morph * futureWeight;
-        const driftY = (stableRand(seedKey, 63) - 0.24) * 54 * morph * futureWeight;
+        const offset = cumulativeYearOffset(node);
+        const driftX = offset.x;
+        const driftY = offset.y;
         node.x = clamp(node.baseX + driftX, canvasMinX(), canvasMaxX());
         node.y = clamp(node.baseY + driftY, canvasMinY(), canvasMaxY());
     });
 
+    applyBridgeStressMorph();
+    renderBridgeGuides();
     nodeLayer.selectAll(".root-node").style("display", null);
     linkLayer.selectAll(".root-link").style("display", null);
     supportLayer.selectAll(".edge-support-root").style("display", null);
     rerenderNodes();
     rerenderLinks();
     rerenderSupportRoots();
+}
+
+function applyBridgeStressMorph() {
+    const stress = contractionStrength();
+    const stepDetail = interventionStepDetail();
+    const stepPhase = manualInterventionCount() * 0.47;
+    const recovery = bridgeGrowthState() === "recovery" ? clamp(negativeInterventionCount() / 8, 0, 1) : 0;
+    const instability = clamp(stress * (1 - recovery * 0.68), 0, 1.35);
+    const frame = getCurrentAnchorFrame();
+    const centerX = frame.leftX + (frame.rightX - frame.leftX) * 0.5;
+    const centerY = frame.midY - height * (0.04 + instability * 0.075) + Math.sin(stepPhase) * stepDetail * 4;
+    const anchorPull = clamp(instability * 0.42, 0, 0.58);
+
+    rootNodes.forEach(node => {
+        ensureBasePosition(node);
+        if(node.layer === "anchorage") {
+            const side = node.side === "left" ? -1 : 1;
+            const verticalTension = Math.sin((node.id + config.year) * 0.5 + stepPhase) * (instability * 12 + stepDetail * 2.4);
+            const lateralTension = side * Math.cos(stepPhase + node.id) * stepDetail * 3.2;
+            node.x = clamp(node.baseX + (centerX - node.baseX) * anchorPull + lateralTension, 20, width - 20);
+            node.y = clamp(node.baseY + (centerY - node.baseY) * anchorPull * 0.18 + verticalTension, 20, height - 20);
+            return;
+        }
+        const seedKey = node.seedKey || node.id;
+        const side = node.side === "left" ? -1 : node.side === "right" ? 1 : (stableRand(seedKey, 95) > 0.5 ? 1 : -1);
+        const recoveryCollapse = node.recovery ? recoveryCollapseFactor() : 0;
+        if(node.seedMode === "support-under") {
+            const sideAnchor = node.side ? rootNodes.find(anchor => anchor.layer === "anchorage" && anchor.side === node.side) : null;
+            const anchorDx = sideAnchor ? sideAnchor.x - sideAnchor.baseX : 0;
+            const anchorDy = sideAnchor ? sideAnchor.y - sideAnchor.baseY : 0;
+            const underWave = Math.sin((node.id + config.year) * 0.57 + stepPhase) * (instability * 7 + stepDetail * 1.4);
+            const yearOffset = cumulativeYearOffset(node, 1.15);
+            node.x = clamp(node.baseX + yearOffset.x + anchorDx * 0.92 + side * underWave, canvasMinX(), canvasMaxX());
+            node.y = clamp(node.baseY + yearOffset.y + anchorDy * 0.82 + Math.abs(underWave) * 0.65, canvasMinY(), canvasMaxY());
+            return;
+        }
+        const yearOffset = (!node.intervention && !node.recovery) ? cumulativeYearOffset(node) : { x: 0, y: 0 };
+        const morphBaseX = node.baseX + yearOffset.x;
+        const morphBaseY = node.baseY + yearOffset.y;
+        const bridgeRole = node.recovery
+            ? (node.recoveryOffshoot ? 0.62 : 0.76)
+            : node.intervention ? 1.55 : node.seedMode === "support-under" ? 0.14 : node.layer === "primary" ? 1.05 : 0.84;
+        const pull = clamp(instability * bridgeRole, 0, 0.76);
+        const distanceFromCenter = morphBaseX - centerX;
+        const knotWave = Math.sin((node.id + config.year) * 0.73 + stableRand(seedKey, 96) * Math.PI * 2 + stepPhase);
+        const knotRadius = 1 - Math.min(1, Math.abs(distanceFromCenter) / Math.max(1, width * 0.48));
+        const twist = knotWave * (instability * (node.recovery ? 24 : node.intervention ? 112 : 72) + stepDetail * (node.intervention ? 15 : 7));
+        const crossTwist = Math.cos((node.id + config.month) * 1.17 + stableRand(seedKey, 97) * Math.PI + stepPhase * 0.7) * (instability * (node.recovery ? 18 : node.intervention ? 58 : 40) + stepDetail * (node.recovery ? 3 : 6));
+        const sagLift = node.recovery ? height * recoveryCollapse * 0.018 : node.intervention ? -height * instability * 0.026 : height * instability * 0.035;
+
+        node.x = clamp(morphBaseX + (centerX - morphBaseX) * pull + side * twist * knotRadius + crossTwist * 0.35, canvasMinX(), canvasMaxX());
+        node.y = clamp(morphBaseY + (centerY - morphBaseY) * pull * 0.68 + sagLift + crossTwist, canvasMinY(), canvasMaxY());
+    });
 }
 
 function freeActionNodeCapacity(requiredCount = 1) {
@@ -1182,6 +1524,7 @@ function createRecoveryOffshoot(parentNode, seedIndex) {
         intervention: false,
         activeIntervention: false,
         recovery: true,
+        recoverySlot: parentNode.recoverySlot,
         recoveryOffshoot: true,
         recoverySide: parentNode.recoverySide
     };
@@ -1194,20 +1537,44 @@ function createRecoveryOffshoot(parentNode, seedIndex) {
     return node;
 }
 
-function growRecoveryBurst(type, amount = RECOVERY_BURST_ROOTS) {
-    ageExistingRoots();
+function appendRecoveryRoots(type, amount) {
+    const collapse = recoveryCollapseFactor();
     for(let i = 0; i < amount && recoveryActionCount < MAX_RECOVERY_ACTIONS; i++) {
         const newRecoveryIndex = recoveryActionCount;
         recoveryActionCount += 1;
         const node = createBridgeNode(null, "recovery", newRecoveryIndex);
         if(node) {
             createRecoveryOffshoot(node, newRecoveryIndex);
-            if(stableRand(`recovery-burst-extra-${newRecoveryIndex}`, 6) > 0.58) {
+            if(collapse < 0.72 && stableRand(`recovery-burst-extra-${newRecoveryIndex}`, 6) > 0.32) {
                 createRecoveryOffshoot(node, newRecoveryIndex + 2000);
             }
         }
     }
     metrics.lastIntervention = `Protective action reducing ${counterImpactLabel(type)}: recovery roots expand while deformed blue strands dissolve.`;
+}
+
+function growRecoveryBurst(type, amount = RECOVERY_BURST_ROOTS) {
+    ageExistingRoots();
+    const collapse = recoveryCollapseFactor();
+    const visibleAmount = Math.max(2, Math.round(amount * (1 - collapse * 0.42)));
+    appendRecoveryRoots(type, visibleAmount);
+}
+
+function syncRecoveryRootsToCount(targetCount, type = "preview") {
+    const target = Math.round(clamp(targetCount, 0, MAX_RECOVERY_ACTIONS));
+    if(target < recoveryActionCount) {
+        const removedNodes = new Set(rootNodes.filter(node =>
+            node.recovery &&
+            Number.isFinite(node.recoverySlot) &&
+            node.recoverySlot >= target
+        ));
+        removeNodesFromCanvas(removedNodes);
+        recoveryActionCount = target;
+    }
+    if(target > recoveryActionCount) {
+        ensureRecoveryBridgeBase();
+        appendRecoveryRoots(type, target - recoveryActionCount);
+    }
 }
 
 function removeTemporalRecoveryRoots() {
@@ -1300,9 +1667,35 @@ function removeHumanActionRoots() {
     linkLayer.selectAll(".root-link")
         .filter(d => d && (d.intervention || d.recovery || removedNodes.has(d.source) || removedNodes.has(d.target)))
         .remove();
+    linkLayer.selectAll(".root-link-hit")
+        .filter(d => d && (d.intervention || d.recovery || removedNodes.has(d.source) || removedNodes.has(d.target)))
+        .remove();
     supportLayer.selectAll(".edge-support-root")
         .filter(d => d && (d.intervention || d.recovery || removedNodes.has(d.source)))
         .remove();
+    supportLayer.selectAll(".edge-support-root-hit")
+        .filter(d => d && (d.intervention || d.recovery || removedNodes.has(d.source)))
+        .remove();
+    refreshFormMode();
+}
+
+function resetActionMorphToBase() {
+    rootNodes.forEach(node => {
+        ensureBasePosition(node);
+        if(node.layer === "anchorage") {
+            node.x = node.baseX;
+            node.y = node.baseY;
+            return;
+        }
+        if(node.intervention || node.recovery) return;
+        node.x = node.baseX;
+        node.y = node.baseY;
+    });
+    rerenderNodes();
+    rerenderLinks();
+    rerenderSupportRoots();
+    renderBridgeGuides();
+    refreshFormMode();
 }
 
 // --- Core growth-rule engine ---
@@ -1313,6 +1706,9 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
     if(rootNodes.length >= MAX_NODES) {
         metrics.lastIntervention = "Root field is full; existing growth is preserved instead of being rebuilt.";
         if(!bulkRenderDepth) updateSystemMonitor();
+        return null;
+    }
+    if(seedMode === "live" && rootNodes.filter(node => node.seedMode === "live").length >= MAX_LIVE_MICROBE_NODES) {
         return null;
     }
 
@@ -1344,11 +1740,13 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
         const slot = Number.isFinite(seedIndex) ? seedIndex : 0;
         const strand = slot % 9;
         const rung = Math.floor(slot / 9);
+        const contraction = contractionStrength();
         const progress = clamp((strand + 0.5) / 9 + (rand(14) - 0.5) * 0.12, 0, 1);
-        const upwardBurst = 54 + rung * 14 + rand(15) * 92;
-        const violentOffset = Math.sin(slot * 1.71) * (26 + rung * 1.4) + (rand(16) - 0.5) * 132;
-        x = leftX + (rightX - leftX) * progress + violentOffset;
-        y = Math.max(canvasMinY() + height * 0.16, midY - upwardBurst + Math.cos(slot * 1.19) * 24);
+        const knotProgress = 0.5 + (progress - 0.5) * (1 - contraction * 0.46);
+        const upwardBurst = 18 + rung * (5 + contraction * 2) + rand(15) * (34 + contraction * 18);
+        const violentOffset = Math.sin(slot * 1.71) * (22 + rung * 1.1 + contraction * 28) + (rand(16) - 0.5) * (112 - contraction * 36);
+        x = leftX + (rightX - leftX) * knotProgress + violentOffset;
+        y = clamp(midY - upwardBurst + Math.cos(slot * 1.19) * (18 + contraction * 22), midY - height * 0.18, midY + height * 0.08);
         textToken = `[${config.year}] human intervention pollution layer`;
         sourceLabel = `deformed growth layer: CO2e ${metrics.humanCo2Kg.toFixed(1)} kg / stress ${(metrics.stressLevel * 100).toFixed(0)}%`;
     }
@@ -1389,42 +1787,82 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
     } 
     // Rule 2: once intervention exists, the airborne bridge system is activated.
     else {
-        layerName = growthState === "recovery"
-            ? (isCumulativeSeed ? cumulativeLayerFor(seedRow, "bridge") : choose(["primary", "mesh", "deck"]))
-            : choose(["primary", "primary", "mesh"]);
-        
-        const progress = isCumulativeSeed
-            ? clamp(((seedRow.year || START_YEAR) - START_YEAR) / Math.max(1, CURRENT_YEAR - START_YEAR), 0, 1)
-            : (rootNodes.length % 300) / 300;
-        const left = geometry.leftX + 30;
-        const right = geometry.rightX - 30;
-        const archLift = Math.sin(progress * Math.PI);
-        
-        x = left + (right - left) * progress + (rand(4) - 0.5) * (isCumulativeSeed ? 70 : 40);
-        if(growthState === "neutral") {
-            y = geometry.midY
-                - archLift * (height * 0.018 + metrics.meshAmplitude * 0.22)
-                + (rand(5) - 0.5) * (height * metrics.bridgeWidth * 0.16);
-        } else if(growthState === "pollution") {
-            y = geometry.midY
-                - archLift * (height * 0.22 + metrics.meshAmplitude * 0.9)
-                + (rand(5) - 0.5) * (height * metrics.bridgeWidth * 0.46)
-                - metrics.stressLevel * 18;
+        if(!isCumulativeSeed && seedMode === "live" && otu) {
+            const liveParents = rootNodes
+                .filter(node => node.layer !== "anchorage" && !node.intervention)
+                .filter(node => node.seedMode !== "support-under")
+                .slice(-96);
+            parentNode = liveParents.length
+                ? liveParents[Math.floor(rand(32) * liveParents.length)]
+                : getBridgeParent("mesh", geometry.leftX + (geometry.rightX - geometry.leftX) * rand(33), geometry.midY);
+
+            const richness = clamp(Math.log10((otu.totalObs || 1) + 1) / 7, 0.12, 1);
+            const prevalence = clamp(Math.log10((otu.numSamples || 1) + 1) / 4, 0.1, 1);
+            const parentSide = parentNode && parentNode.side ? parentNode.side : (rand(34) > 0.5 ? "left" : "right");
+            const sideDrift = parentSide === "left" ? 1 : -1;
+            const zigzagSign = rand(35) > 0.5 ? 1 : -1;
+            const branchStep = 22 + richness * 58 + rand(36) * 44;
+            const lateralJitter = (rand(37) - 0.5) * (52 + prevalence * 90);
+            const verticalJitter = (rand(38) - 0.5) * (70 + metrics.meshAmplitude * 1.2);
+            const sawOffset = zigzagSign * (18 + prevalence * 58 + rand(39) * 32);
+            const awayFromDeck = parentNode && parentNode.y > geometry.midY ? -1 : 1;
+
+            layerName = choose(["mesh", "mesh", "deck", "primary"]);
+            x = parentNode.x + sideDrift * branchStep + lateralJitter;
+            y = parentNode.y
+                + verticalJitter
+                + sawOffset
+                + awayFromDeck * (rand(40) - 0.2) * 36
+                + (growthState === "recovery" ? 16 : -metrics.stressLevel * 10);
+
+            // Keep live microbes from collapsing back into the formal bridge deck.
+            if(Math.abs(y - geometry.midY) < 18) y += zigzagSign * (26 + rand(41) * 34);
+
+            textToken = getMetaphor(otu.taxonomy, otu.genus || "behavior bacteria");
+            sourceLabel = `live microbial variation: ${otu.phylum || "atmospheric load"} / observations ${Math.round(otu.totalObs || 0)}`;
         } else {
+            layerName = growthState === "recovery"
+                ? (isCumulativeSeed ? cumulativeLayerFor(seedRow, "bridge") : choose(["primary", "mesh", "deck"]))
+                : choose(["primary", "primary", "mesh"]);
+            
+            const rawProgress = isCumulativeSeed
+                ? clamp(((seedRow.year || START_YEAR) - START_YEAR) / Math.max(1, CURRENT_YEAR - START_YEAR), 0, 1)
+                : (rootNodes.length % 300) / 300;
+            const profile = regionalGrowthProfile(seedRow);
+            const progress = clamp(Math.pow(rawProgress, profile.progressWarp) + (rand(32) - 0.5) * profile.brokenness * 0.18, 0, 1);
+            const left = geometry.leftX + 30;
+            const right = geometry.rightX - 30;
+            const archLift = Math.sin(progress * Math.PI) * profile.archWeight;
+            const localWave = Math.sin(progress * Math.PI * (2.2 + rand(33) * 2.4) + profile.countryDrift * Math.PI * 2);
+            const secondaryWave = Math.cos(progress * Math.PI * (3.1 + rand(34) * 1.8) + rand(35) * Math.PI);
+            const contraction = growthState === "pollution" ? contractionStrength() : 0;
+            const scatterX = (rand(4) - 0.5) * profile.horizontalScatter * (1 - contraction * 0.28);
+            const scatterY = (rand(5) - 0.5) * profile.verticalScatter * (1 + contraction * 0.42);
+            const climateLift = growthState === "pollution" ? -metrics.stressLevel * 18 : profile.branchLift;
+            const pollutionLift = growthState === "pollution" ? height * 0.13 + metrics.meshAmplitude * 0.55 : 0;
+            const recoveryDrop = growthState === "recovery" ? 22 : 0;
+
+            x = left + (right - left) * (0.5 + (progress - 0.5) * (1 - contraction * 0.3)) + scatterX + localWave * profile.waveAmp * (0.32 + contraction * 0.18);
             y = geometry.midY
-                - archLift * (height * 0.045)
-                + (rand(5) - 0.5) * (height * metrics.bridgeWidth * 0.24);
+                - archLift * (height * 0.12 + metrics.meshAmplitude * 0.75)
+                - pollutionLift * archLift
+                + localWave * profile.waveAmp * (0.36 + contraction * 0.26)
+                + secondaryWave * profile.waveAmp * (0.18 + contraction * 0.18)
+                + scatterY
+                + profile.downwardBias
+                + climateLift
+                + recoveryDrop;
+            parentNode = getBridgeParent(layerName, x, y);
         }
-        parentNode = getBridgeParent(layerName, x, y);
 
         if (seedRow) {
             textToken = `[${seedRow.year}] ${seedRow.biome}`;
             sourceLabel = `cumulative EMP frame: ${seedRow.sampleId} / ${seedRow.biome}`;
-        } else if (otu) {
+        } else if (otu && seedMode !== "live") {
             // Replace Latin names with metaphorical ecological text.
             textToken = getMetaphor(otu.taxonomy, otu.genus || "behavior bacteria");
             sourceLabel = `intervention-induced ecosystem: ${otu.phylum || "atmospheric load"}`;
-        } else {
+        } else if (!(seedMode === "live" && otu)) {
             textToken = "[stress-induced connective tissue]";
         }
     }
@@ -1437,6 +1875,7 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
         interventionSlot: isInterventionSeed ? seedIndex : null,
         activeIntervention: isInterventionSeed ? isActiveInterventionSlot(seedIndex) : false,
         recovery: isRecoverySeed,
+        recoverySlot: isRecoverySeed ? seedIndex : null,
         recoverySide: isRecoverySeed ? (seedIndex % 2 === 0 ? "left" : "right") : null,
         dataYear: seedRow ? seedRow.year : null,
         seedMode,
@@ -1448,10 +1887,12 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
     if(!bulkRenderDepth) ageExistingRoots();
     rootNodes.push(node);
     if(parentNode) {
-        const linkKind = seedMode === "recovery" ? "recovery" : (seedMode === "downward" || seedMode === "intervention" ? "cross" : (isIntervened ? "primary" : "cross"));
+        const linkKind = seedMode === "recovery"
+            ? "recovery"
+            : (seedMode === "live" && isIntervened ? "microbe" : (seedMode === "downward" || seedMode === "intervention" ? "cross" : (isIntervened ? "primary" : "cross")));
         addBridgeLink(parentNode, node, linkKind, node.intervention, node.activeIntervention, node.recovery);
     }
-    if(!node.recovery) connectStructuralNeighbors(node, isIntervened);
+    if(!node.recovery && !(seedMode === "live" && isIntervened)) connectStructuralNeighbors(node, isIntervened);
     drawNode(node);
     if(shouldGrowSupportRoot(node, seedMode, seedRow, seedIndex)) addSupportRoot(node, seedMode, seedIndex);
     if(!bulkRenderDepth) {
@@ -1472,7 +1913,10 @@ function linkPath(link) {
     const dx = target.x - source.x;
     const interventionSign = stableRand(`${source.id}-${target.id}`, 42) > 0.5 ? 1 : -1;
     const recoveryBend = interventionSign * (4 + stableRand(`${source.id}-${target.id}`, 44) * 8);
-    const bend = recovery ? recoveryBend : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "cross" ? 7 : 18 * metrics.stressLevel));
+    const microbialBend = interventionSign * (22 + stableRand(`${source.id}-${target.id}`, 45) * 86);
+    const bend = recovery
+        ? recoveryBend
+        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "microbe" ? microbialBend : (kind === "cross" ? 7 : 18 * metrics.stressLevel)));
     return `M${source.x},${source.y} C${source.x + dx*0.34},${source.y + bend} ${source.x + dx*0.68},${target.y - bend} ${target.x},${target.y}`;
 }
 
@@ -1510,6 +1954,33 @@ function co2MetricValue() {
     return metrics.humanCo2Kg < 0 ? `${amount} kg avoided` : `${amount} kg`;
 }
 
+function nodeMeaning(node) {
+    if(!node) return "A data point translated into root growth.";
+    if(node.layer === "anchorage") return "This support point holds the bridge shape in place.";
+    if(node.intervention) return node.activeIntervention
+        ? "Human pressure is bending this growth upward."
+        : "A remaining trace of past human pressure.";
+    if(node.recovery) return "A recovery action is reconnecting damaged strands.";
+    if(node.seedMode === "support-under") return "A seasonal soil sample continues growth below the bridge.";
+    if(node.seedMode === "downward") return "A nearby EMP soil sample grows as a downward root.";
+    if(node.seedMode === "bridge") return "An EMP microbial sample becomes part of the bridge body.";
+    if(node.seedMode === "live" && (String(node.source || "").includes("intervention-induced") || String(node.source || "").includes("live microbial variation"))) {
+        return "An OTU microbial community appears through human pressure.";
+    }
+    return "Local air and soil conditions are translated into root growth.";
+}
+
+function lineMeaning(item) {
+    if(item.supportUnder || item.seasonalBaseSupport) return "Archived seasonal soil growth.";
+    if(item.recovery) return "Former recovery path reconnecting the bridge.";
+    if(item.intervention) return item.activeIntervention
+        ? "Human pressure is pulling this strand out of balance."
+        : "Past human pressure, now fading into the bridge.";
+    if(item.kind === "microbe") return "Live microbial values branch irregularly from existing roots.";
+    if(item.kind === "cross") return "Archived microbial link between local samples.";
+    return "Older structural strand in the root bridge.";
+}
+
 function dataKeywordForNode(node) {
     if(!node) return "Data";
     if(node.layer === "anchorage") return "Anchor / Structural Support";
@@ -1537,39 +2008,18 @@ function readableNodeLabel(node) {
 }
 
 function nodeTooltipHtml(node) {
-    const keyword = dataKeywordForNode(node);
     const rows = [
-        { label: "Data Type", value: keyword },
-        { label: "Sample", value: readableNodeLabel(node) },
-        { label: "Location", value: config.locName },
-        { label: "Year / Month", value: `${node.dataYear || config.year} / ${monthName(config.month)}` }
+        { label: "Meaning", value: nodeMeaning(node) },
+        { label: "Root", value: dataKeywordForNode(node) },
+        { label: "Place", value: config.locName }
     ];
 
-    if(node.layer === "anchorage") {
-        rows.push(
-            { label: "Role", value: "Fixed point holding the bridge shape" },
-            { label: "Support Spread", value: `${Math.round(metrics.anchorSpread)}px` }
-        );
-    } else if(node.intervention) {
-        rows.push(
-            { label: co2MetricLabel(), value: co2MetricValue() },
-            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
-        );
-    } else if(node.recovery) {
-        rows.push(
-            { label: "Positive Action", value: `${recoveryActionCount} roots` },
-            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
-        );
-    } else {
-        rows.push(
-            { label: "Temperature", value: `${metrics.airTemp.toFixed(1)}°C` },
-            { label: "Fine Dust", value: `${metrics.pm25.toFixed(1)} µg/m³` },
-            { label: "Coarse Dust", value: `${metrics.pm10.toFixed(1)} µg/m³` },
-            { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
-        );
-        if(node.seedMode === "support-under") {
-            rows.push({ label: "Seasonal Activity", value: percent(microbialSeasonActivity()) });
-        }
+    if(node && (node.seedMode === "bridge" || node.seedMode === "downward" || node.seedMode === "support-under")) {
+        rows.push({ label: "Sample", value: readableNodeLabel(node) });
+    } else if(node && node.intervention) {
+        rows.push({ label: "Pressure", value: co2MetricValue() });
+    } else if(node && node.recovery) {
+        rows.push({ label: "Recovery", value: `${recoveryActionCount} clean roots` });
     }
 
     return tooltipRows(rows);
@@ -1580,46 +2030,17 @@ function lineTooltipTitle(item) {
     if(item.seasonalBaseSupport) return "Below-Support Growth";
     if(item.recovery) return "Recovery Root";
     if(item.intervention) return item.activeIntervention ? "Intervention Pollution Layer" : "Past Pollution Trace";
+    if(item.kind === "microbe") return "Live Microbial Branch";
     if(item.kind === "cross") return "OTU / Microbial Link";
     return "Structural Link";
 }
 
 function lineTooltipRows(item) {
     const isSupportRoot = item && !item.kind && item.source && item.target;
-    if(item.supportUnder || item.seasonalBaseSupport) {
-        return [
-            { label: "Data Type", value: lineTooltipTitle(item) },
-            { label: "Seasonal Activity", value: percent(microbialSeasonActivity()) },
-            { label: "Month", value: monthName(config.month) }
-        ];
-    }
-    if(item.recovery) {
-        return [
-            { label: "Data Type", value: "Recovery Root" },
-            { label: "Positive Action", value: `${recoveryActionCount} roots` },
-            { label: "State", value: "Reconnecting while reducing pollution traces" }
-        ];
-    }
-    if(item.intervention) {
-        return [
-            { label: "Data Type", value: item.activeIntervention ? "Intervention Pollution Layer" : "Past Pollution Trace" },
-            { label: co2MetricLabel(), value: co2MetricValue() },
-            { label: "Pollution Pressure", value: percent(metrics.stressLevel) }
-        ];
-    }
-    if(isSupportRoot) {
-        return [
-            { label: "Data Type", value: "Anchor / Structural Support" },
-            { label: "Role", value: "Support line holding the bridge shape" },
-            { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
-        ];
-    }
     return [
-        { label: "Data Type", value: item.kind === "cross" ? "OTU / Microbial Link" : "Cumulative EMP Link" },
-        { label: "Temperature", value: `${metrics.airTemp.toFixed(1)}°C` },
-        { label: "Fine Dust", value: `${metrics.pm25.toFixed(1)} µg/m³` },
-        { label: "Coarse Dust", value: `${metrics.pm10.toFixed(1)} µg/m³` },
-        { label: "Climate Growth", value: percent(climateGrowthSuitability()) }
+        { label: "Meaning", value: lineMeaning(item) },
+        { label: "Strand", value: isSupportRoot ? "Anchor / Structural Support" : lineTooltipTitle(item) },
+        { label: "Place", value: config.locName }
     ];
 }
 
@@ -1638,15 +2059,26 @@ function attachLineTooltip(pathSelection) {
 }
 
 function drawLink(link) {
-    const path = linkLayer.append("path").datum(link).attr("class", `root-link root-fresh ${link.kind}-link`).attr("d", linkPath(link))
+    const path = linkLayer.append("path").datum(link).attr("class", `root-link root-fresh ${link.kind}-link${link.intervention ? " intervention-root" : ""}${link.activeIntervention ? " active-intervention" : ""}`).attr("d", linkPath(link))
         .attr("stroke", link.intervention ? getInterventionColor(link) : (link.recovery ? getRecoveryColor(link) : getRootStrokeColor()))
-        .attr("stroke-width", link.recovery ? (link.kind === "recovery-offshoot" ? 0.9 : 1.45) : (link.intervention ? (link.activeIntervention ? 1.25 : 0.85) : (link.kind === "cross" ? 0.68 : 1.28 + metrics.stressLevel * 0.7)))
-        .style("stroke-opacity", link.recovery ? 0.86 : (link.intervention ? interventionOpacity("line", link.activeIntervention) : (link.kind === "cross" ? 0.34 : 0.64)));
+        .attr("stroke-width", getLinkStrokeWidth(link))
+        .style("stroke-opacity", getLinkStrokeOpacity(link));
 
     attachLineTooltip(path);
     if(link.intervention && link.activeIntervention) path.raise();
     else path.lower();
+    if(link.kind !== "microbe") {
+        const hitPath = linkLayer.append("path").datum(link).attr("class", "root-link-hit").attr("d", linkPath(link))
+            .attr("stroke", "rgba(0,0,0,0.001)")
+            .attr("stroke-width", 18)
+            .attr("fill", "none")
+            .style("pointer-events", "stroke");
+
+        attachLineTooltip(hitPath);
+        hitPath.raise();
+    }
 }
+
 
 function supportTargetFor(node, seedKey, mode) {
     const edgePick = stableRand(seedKey, 71);
@@ -1725,16 +2157,28 @@ function addSupportRoot(node, seedMode, seedIndex = null) {
 function drawSupportRoot(support) {
     const path = supportLayer.append("path")
         .datum(support)
-        .attr("class", "edge-support-root root-fresh")
+        .attr("class", `edge-support-root root-fresh${support.intervention ? " intervention-root" : ""}${support.activeIntervention ? " active-intervention" : ""}`)
         .attr("d", supportPath)
         .attr("stroke", support.intervention ? getInterventionColor(support) : (support.recovery ? getRecoveryColor(support) : getRootStrokeColor()))
-        .attr("stroke-width", support.intervention ? 0.82 : (support.recovery ? 0.72 : 0.58))
-        .style("stroke-opacity", support.intervention ? interventionOpacity("support", support.activeIntervention) : (support.recovery ? 0.42 : 0.26));
+        .attr("stroke-width", getSupportStrokeWidth(support))
+        .style("stroke-opacity", getSupportStrokeOpacity(support));
+
+    const hitPath = supportLayer.append("path")
+        .datum(support)
+        .attr("class", "edge-support-root-hit")
+        .attr("d", supportPath)
+        .attr("stroke", "rgba(0,0,0,0.001)")
+        .attr("stroke-width", 18)
+        .attr("fill", "none")
+        .style("pointer-events", "stroke");
 
     attachLineTooltip(path);
+    attachLineTooltip(hitPath);
     if(support.intervention && support.activeIntervention) path.raise();
     else path.lower();
+    hitPath.raise();
 }
+
 
 function supportUnderDataRow(seedKey, index) {
     if(!stableBridgeSeedRows.length) return null;
@@ -1877,10 +2321,12 @@ function growSupportUnderground(support, seedMode) {
 
 function rerenderSupportRoots() {
     supportLayer.selectAll(".edge-support-root").attr("d", supportPath);
+    supportLayer.selectAll(".edge-support-root-hit").attr("d", supportPath);
 }
 
 function rerenderLinks() {
     linkLayer.selectAll(".root-link").attr("d", linkPath);
+    linkLayer.selectAll(".root-link-hit").attr("d", linkPath);
 }
 
 function rerenderNodes() {
@@ -1910,38 +2356,51 @@ function pullRootsWithAnchor(anchorNode, dx, dy) {
 }
 
 function drawNode(node) {
-    const group = nodeLayer.append("g").datum(node).attr("class", `root-node root-fresh ${node.layer}-node`).attr("transform", `translate(${node.x}, ${node.y})`);
-    const radius = node.recovery ? (node.recoveryOffshoot ? 2.0 : 3.2) : (node.intervention ? 4.1 : (node.layer === "anchorage" ? 5.5 : node.layer === "primary" ? 3.6 : node.layer === "mesh" ? 2.6 : 2.1));
+    const group = nodeLayer.append("g").datum(node).attr("class", `root-node root-fresh ${node.layer}-node${node.intervention ? " intervention-root" : ""}${node.activeIntervention ? " active-intervention" : ""}`).attr("transform", `translate(${node.x}, ${node.y})`);
+    const interventionRadius = 3.25 + Math.max(0, 1 - contractionStrength()) * 0.65;
+    const radius = node.recovery ? (node.recoveryOffshoot ? 2.0 : 3.2) : (node.intervention ? interventionRadius : (node.layer === "anchorage" ? 5.5 : node.layer === "primary" ? 3.6 : node.layer === "mesh" ? 2.6 : 2.1));
     
+    const hit = group.append("circle").attr("class", "root-node-hit")
+        .attr("r", Math.max(13, radius * 3.6))
+        .style("fill", "transparent")
+        .style("stroke", "transparent")
+        .style("pointer-events", "all");
+
     const dot = group.append("circle").attr("class", "root-dot-node root-fresh")
         .attr("r", radius)
         .style("fill", getNodeRootColor(node))
         .style("stroke", getNodeRootColor(node))
         .style("stroke-width", node.layer === "anchorage" ? 1.4 : 0.6)
         .style("opacity", getNodeOpacity(node))
-        .on("mouseover", function(e, d) {
-            d3.select(this)
-                .interrupt()
-                .transition()
-                .duration(130)
-                .attr("r", d.layer === "anchorage" ? radius * 1.18 : radius)
-                .style("opacity", 1)
-                .style("stroke-width", d.layer === "anchorage" ? 2.1 : 1.15);
-            tooltip.style("display", "block").html(nodeTooltipHtml(d));
-        })
-        .on("mousemove", function(e) { tooltip.style("left", `${e.pageX - 180}px`).style("top", `${e.pageY - 70}px`); })
-        .on("mouseleave", function(e, d) {
-            const parent = d3.select(this.parentNode);
-            if(!parent.classed("anchor-dragging")) {
-                d3.select(this)
-                    .transition()
-                    .duration(160)
-                    .attr("r", radius)
-                    .style("opacity", getNodeOpacity(d))
-                    .style("stroke-width", d.layer === "anchorage" ? 1.4 : 0.6);
-            }
-            tooltip.style("display", "none");
-        });
+        .style("pointer-events", "none");
+
+    const showNodeTooltip = function(e, d) {
+        dot.interrupt()
+            .transition()
+            .duration(130)
+            .attr("r", d.layer === "anchorage" ? radius * 1.18 : radius * 1.25)
+            .style("opacity", 1)
+            .style("stroke-width", d.layer === "anchorage" ? 2.1 : 1.15);
+        tooltip.style("display", "block").html(nodeTooltipHtml(d));
+    };
+    const moveNodeTooltip = function(e) {
+        tooltip.style("left", `${e.pageX - 180}px`).style("top", `${e.pageY - 70}px`);
+    };
+    const hideNodeTooltip = function(e, d) {
+        const parent = d3.select(this.parentNode);
+        if(!parent.classed("anchor-dragging")) {
+            dot.transition()
+                .duration(160)
+                .attr("r", radius)
+                .style("opacity", getNodeOpacity(d))
+                .style("stroke-width", d.layer === "anchorage" ? 1.4 : 0.6);
+        }
+        tooltip.style("display", "none");
+    };
+
+    hit.on("mouseover", showNodeTooltip)
+        .on("mousemove", moveNodeTooltip)
+        .on("mouseleave", hideNodeTooltip);
 
     if(node.layer === "anchorage") {
         group.style("cursor", "move")
@@ -1980,6 +2439,8 @@ function drawNode(node) {
                 .on("end", function(event, d) {
                     if(event.sourceEvent) event.sourceEvent.stopPropagation();
                     draggingAnchor = false;
+                    d.baseX = d.x;
+                    d.baseY = d.y;
                     d3.select(this)
                         .classed("anchor-dragging", false)
                         .select(".root-dot-node")
@@ -2006,20 +2467,17 @@ function ageExistingRoots() {
     svg.selectAll(".root-dot-node.root-aged")
         .style("fill", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, true) : getAgedRootColor()); })
         .style("stroke", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, true) : getAgedRootColor()); })
-        .style("opacity", function(d) { return d && d.recovery ? 0.62 : (d && d.intervention ? interventionOpacity("aged-node", d.activeIntervention) : getAgedRootOpacity()); });
+        .style("opacity", function(d) { return d && d.recovery ? getNodeOpacity(d) * 0.76 : (d && d.intervention ? interventionOpacity("aged-node", d.activeIntervention) : getAgedRootOpacity()); });
 
     svg.selectAll(".root-link.root-aged")
         .attr("stroke", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, true) : getAgedRootColor()); })
-        .attr("stroke-width", function(d) {
-            if(d && d.intervention) return d.activeIntervention ? 1.25 : 0.85;
-            if(d && d.recovery) return d.kind === "recovery-offshoot" ? 0.9 : 1.45;
-            return d && d.kind === "cross" ? 0.68 : 1.28 + metrics.stressLevel * 0.7;
-        })
-        .style("stroke-opacity", function(d) { return d && d.recovery ? 0.5 : (d && d.intervention ? interventionOpacity("aged-line", d.activeIntervention) : getAgedRootOpacity() * 0.68); });
+        .attr("stroke-width", function(d) { return getLinkStrokeWidth(d, true); })
+        .style("stroke-opacity", function(d) { return getLinkStrokeOpacity(d, true); });
 
     svg.selectAll(".edge-support-root.root-aged")
         .attr("stroke", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, true) : getAgedRootColor()); })
-        .style("stroke-opacity", function(d) { return d && d.intervention ? interventionOpacity("aged-support", d.activeIntervention) : (d && d.recovery ? 0.34 : 0.22); });
+        .attr("stroke-width", function(d) { return getSupportStrokeWidth(d); })
+        .style("stroke-opacity", function(d) { return getSupportStrokeOpacity(d, true); });
 }
 
 // --- 7. Environmental control feedback interactions ---
@@ -2045,41 +2503,56 @@ function getNodeRootColor(node, aged = false) {
 }
 
 function getNodeOpacity(node) {
-    if(node && node.recovery) return 0.82;
+    if(node && node.recovery) return (node.recoveryOffshoot ? 0.64 : 0.82) * (1 - recoveryCollapseFactor() * (node.recoveryOffshoot ? 0.58 : 0.34));
     if(node && node.intervention) return interventionOpacity("node", node.activeIntervention);
-    return getRootTextOpacity();
+    if(node && node.layer === "anchorage") return 1;
+    if(node && node.layer === "primary") return 0.82;
+    if(node && node.layer === "mesh") return 0.58;
+    if(node && node.seedMode === "support-under") return 0.76;
+    return 0.42;
 }
 
 function applyBrightness(restart = true) {
     const isDark = config.brightness < 40;
-    const brightnessStateKey = `${config.brightness}:${lastColorStateKey}:${metrics.stressLevel.toFixed(3)}`;
+    const brightnessStateKey = `${config.brightness}:${lastColorStateKey}:${metrics.stressLevel.toFixed(3)}:${metrics.decay.toFixed(3)}:${metrics.plasticWasteKg.toFixed(3)}`;
     if(!restart && brightnessStateKey === lastBrightnessStateKey) return;
     lastBrightnessStateKey = brightnessStateKey;
     document.getElementById("right-panel").style.backgroundColor = "";
+    if(!draggingAnchor && !draggingRoot) {
+        applyBridgeStressMorph();
+        rerenderNodes();
+        renderBridgeGuides();
+    }
     svg.selectAll(".root-dot-node")
         .style("fill", function(d) { return getNodeRootColor(d, d3.select(this).classed("root-aged")); })
         .style("stroke", function(d) { return getNodeRootColor(d, d3.select(this).classed("root-aged")); })
-        .style("opacity", function(d) { return d && d.recovery ? (d3.select(this).classed("root-aged") ? 0.62 : 0.82) : (d && d.intervention ? interventionOpacity(d3.select(this).classed("root-aged") ? "aged-node" : "node", d.activeIntervention) : (d3.select(this).classed("root-aged") ? getAgedRootOpacity() : getRootTextOpacity())); });
+        .style("opacity", function(d) { return d && d.recovery ? (d3.select(this).classed("root-aged") ? getNodeOpacity(d) * 0.76 : getNodeOpacity(d)) : (d && d.intervention ? interventionOpacity(d3.select(this).classed("root-aged") ? "aged-node" : "node", d.activeIntervention) : (d3.select(this).classed("root-aged") ? getAgedRootOpacity() : getNodeOpacity(d))); });
     svg.selectAll(".root-link")
+        .attr("d", linkPath)
+        .style("display", function(d) { return shouldHideCollapsedRecovery(d) ? "none" : null; })
         .attr("stroke", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, d3.select(this).classed("root-aged")) : (d3.select(this).classed("root-aged") ? getAgedRootColor() : getRootStrokeColor())); })
-        .attr("stroke-width", function(d) {
-            if(d && d.intervention) return d.activeIntervention ? 1.25 : 0.85;
-            if(d && d.recovery) return d.kind === "recovery-offshoot" ? 0.9 : 1.45;
-            return d && d.kind === "cross" ? 0.68 : 1.28 + metrics.stressLevel * 0.7;
-        })
-        .style("stroke-opacity", function(d) {
-            if(d && d.recovery) return d3.select(this).classed("root-aged") ? 0.5 : 0.74;
-            if(d && d.intervention) return interventionOpacity(d3.select(this).classed("root-aged") ? "aged-line" : "line", d.activeIntervention);
-            if(d3.select(this).classed("root-aged")) return getAgedRootOpacity() * 0.68;
-            return d && d.kind === "cross" ? 0.22 : 0.52 + metrics.stressLevel * 0.4;
-        });
+        .attr("stroke-width", function(d) { return getLinkStrokeWidth(d, d3.select(this).classed("root-aged")); })
+        .style("stroke-opacity", function(d) { return getLinkStrokeOpacity(d, d3.select(this).classed("root-aged")); })
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
     svg.selectAll(".edge-support-root")
+        .attr("d", supportPath)
+        .style("display", function(d) { return shouldHideCollapsedRecovery(d) ? "none" : null; })
         .attr("stroke", function(d) { return d && d.intervention ? getInterventionColor(d) : (d && d.recovery ? getRecoveryColor(d, d3.select(this).classed("root-aged")) : (d3.select(this).classed("root-aged") ? getAgedRootColor() : getRootStrokeColor())); })
-        .style("stroke-opacity", function(d) {
-            if(d && d.intervention) return interventionOpacity(d3.select(this).classed("root-aged") ? "aged-support" : "support", d.activeIntervention);
-            if(d && d.recovery) return 0.38;
-            return d3.select(this).classed("root-aged") ? 0.2 : 0.28;
-        });
+        .attr("stroke-width", function(d) { return getSupportStrokeWidth(d); })
+        .style("stroke-opacity", function(d) { return getSupportStrokeOpacity(d, d3.select(this).classed("root-aged")); })
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
+    svg.selectAll(".root-link-hit")
+        .attr("d", linkPath)
+        .style("display", function(d) { return shouldHideCollapsedRecovery(d) ? "none" : null; });
+    svg.selectAll(".edge-support-root-hit")
+        .attr("d", supportPath)
+        .style("display", function(d) { return shouldHideCollapsedRecovery(d) ? "none" : null; });
+    svg.selectAll(".root-node")
+        .style("display", function(d) { return shouldHideCollapsedRecovery(d) ? "none" : null; })
+        .classed("active-intervention", d => !!(d && d.intervention && d.activeIntervention))
+        .classed("trace-intervention", d => !!(d && d.intervention && !d.activeIntervention));
     if(restart) updateGrowthEngine();
 }
 
@@ -2087,12 +2560,13 @@ function updateGrowthEngine() {
     if(growInterval) clearInterval(growInterval); growInterval = null;
     if(config.paused) return;
     if(rootNodes.length >= MAX_NODES) return;
+    if(rootNodes.filter(node => node.seedMode === "live").length >= MAX_LIVE_MICROBE_NODES) return;
     
     const modeBoost = config.growthMode === "dense" ? 2.2 : 0;
     const climateSpeed = clamp(0.28 + climateGrowthSuitability() * 1.12, 0.28, 1.35);
     const currentSpeed = clamp((1.2 + metrics.stressLevel * 5.0 + modeBoost) * climateSpeed, 0.25, 12);
     
-    const intervalMs = 2800 / currentSpeed;
+    const intervalMs = Math.max(LIVE_GROWTH_MIN_INTERVAL_MS, 2800 / currentSpeed);
     growInterval = setInterval(() => createBridgeNode(null, "live"), intervalMs);
 }
 
@@ -2114,7 +2588,8 @@ function triggerRecoveryAction(type) {
 }
 
 function handleCounterChange(type, delta) {
-    const previousOverlayCount = currentInterventionNodeCount();
+    const previousManualValue = manualInterventionCount();
+    let previousOverlayCount = currentInterventionNodeCount();
     const previousValue = config[type];
     config[type] = config[type] + delta;
     if(delta === 0 || config[type] === previousValue) return;
@@ -2135,21 +2610,41 @@ function handleCounterChange(type, delta) {
     pushInterventionLog(alertMsg);
 
     updateInterventionState();
+    const currentManualValue = manualInterventionCount();
+    if(currentManualValue > 0 && previousManualValue <= 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+    } else if(currentManualValue >= 0 && previousManualValue < 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+        resetActionMorphToBase();
+    } else if(currentManualValue === 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+        resetActionMorphToBase();
+    }
     let nextOverlayCount = getInterventionOverlayCount();
-    if(delta > 0 && config[type] > 0) {
+    if(currentManualValue < 0) {
+        nextOverlayCount = 0;
+        markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
+        syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
+        syncRecoveryRootsToCount(recoveryRootTargetForValue(currentManualValue), type);
+        dissolveInterventionRoots(Math.min(RECOVERY_DISSOLVE_NODES, Math.abs(currentManualValue) + 1));
+    } else if(currentManualValue > 0 && delta > 0 && config[type] > 0) {
         nextOverlayCount = Math.max(nextOverlayCount, previousOverlayCount + 4);
         markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
         syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
-    } else if(delta > 0 && nextOverlayCount <= previousOverlayCount) {
+    } else if(currentManualValue > 0 && delta > 0 && nextOverlayCount <= previousOverlayCount) {
         nextOverlayCount = previousOverlayCount + 1;
         markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
         syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
-    } else if(delta < 0) {
+    } else if(currentManualValue > 0 && delta < 0) {
         markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
         syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
-        ensureRecoveryBridgeBase();
-        growRecoveryBurst(type, RECOVERY_BURST_ROOTS);
-        dissolveInterventionRoots(RECOVERY_DISSOLVE_NODES);
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(currentManualValue), type);
     } else {
         markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
         syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
@@ -2176,7 +2671,10 @@ function pushInterventionLog(msg) {
 
 function clearAndResetCanvas() {
     rootNodes.filter(node => node.layer === "anchorage").forEach(node => {
-        anchorPositions[node.side] = { x: node.x, y: node.y };
+        anchorPositions[node.side] = {
+            x: Number.isFinite(node.baseX) ? node.baseX : node.x,
+            y: Number.isFinite(node.baseY) ? node.baseY : node.y
+        };
     });
     rootNodes = []; rootLinks = []; supportRoots = []; nextNodeId = 0;
     supportLayer.selectAll("*").remove(); linkLayer.selectAll("*").remove(); nodeLayer.selectAll("*").remove();
@@ -2260,13 +2758,45 @@ function distributePollutionPreview(total) {
 function syncPollutionSlider() {
     const slider = document.getElementById("param-pollution");
     if(!slider) return;
-    slider.value = clamp(manualInterventionCount(), -6, 6);
+    slider.value = clamp(manualInterventionCount(), -8, 8);
+}
+
+function recoveryRootTargetForValue(value) {
+    if(value >= 0) return 0;
+    const cleanValue = Math.abs(value);
+    const healthyTarget = Math.min(72, Math.max(8, Math.round(cleanValue * 6 + cleanValue * cleanValue * 1.55)));
+    if(cleanValue <= 8) return healthyTarget;
+    const beyondHealthy = cleanValue - 8;
+    return Math.min(RECOVERY_TARGET_ROOTS, Math.round(72 + beyondHealthy * 10 + beyondHealthy * beyondHealthy * 1.2));
+}
+
+function reliefRecoveryTargetForValue(value) {
+    if(value <= 0) return 0;
+    const stressValue = clamp(value, 0, 8);
+    const relief = clamp((8 - stressValue) / 8, 0, 1);
+    return Math.round(relief * 18);
 }
 
 function applyPollutionPreview(value) {
-    const previousOverlayCount = currentInterventionNodeCount();
+    const previousManualValue = manualInterventionCount();
+    let previousOverlayCount = currentInterventionNodeCount();
     distributePollutionPreview(value);
     updateInterventionState();
+    if(value > 0 && previousManualValue <= 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+    } else if(value >= 0 && previousManualValue < 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+        resetActionMorphToBase();
+    } else if(value === 0) {
+        removeHumanActionRoots();
+        recoveryActionCount = 0;
+        previousOverlayCount = 0;
+        resetActionMorphToBase();
+    }
     let nextOverlayCount = getInterventionOverlayCount();
     if(value > 0 && nextOverlayCount <= previousOverlayCount) {
         nextOverlayCount = previousOverlayCount + 1;
@@ -2274,12 +2804,14 @@ function applyPollutionPreview(value) {
     markLatestInterventionSlots(previousOverlayCount, nextOverlayCount);
     syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
     if(value < 0) {
-        const previewRecoveryCount = Math.min(RECOVERY_BURST_ROOTS, Math.max(2, Math.abs(value) * 2));
-        ensureRecoveryBridgeBase();
-        growRecoveryBurst("preview", previewRecoveryCount);
+        const previewRecoveryCount = recoveryRootTargetForValue(value);
+        syncRecoveryRootsToCount(previewRecoveryCount, "preview");
         dissolveInterventionRoots(Math.min(RECOVERY_DISSOLVE_NODES, Math.abs(value) + 1));
+    } else if(value > 0 && value < previousManualValue) {
+        syncRecoveryRootsToCount(reliefRecoveryTargetForValue(value), "preview");
     }
     metrics.lastIntervention = `Preview pollution value ${value}: intervention counters distributed automatically.`;
+    updateColorState();
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
@@ -2333,13 +2865,15 @@ document.getElementById("btn-pause-growth").addEventListener("click", () => {
     updateGrowthEngine();
 });
 document.getElementById("btn-clear-bridge").addEventListener("click", () => {
-    // Reset human actions while preserving the current base bridge.
+    // Reset human actions and rebuild the current baseline bridge.
     ["transport","climate","shopping","delivery","streaming"].forEach(k => { config[k]=0; document.getElementById(`val-${k}`).innerText=0; });
     activeInterventionStart = 0;
     activeInterventionEnd = 0;
     recoveryActionCount = 0;
     updateInterventionState();
-    removeHumanActionRoots();
+    clearAndResetCanvas();
+    syncEmpMetrics();
+    seedCumulativeBridge();
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
