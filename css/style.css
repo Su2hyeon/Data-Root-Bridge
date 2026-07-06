@@ -959,15 +959,15 @@ body.metrics-ready #data-monitor {
 
 .info-images {
     position: absolute;
-    left: 70.52vw;
+    left: calc(70.52vw + 272.7539px - (12.0875vw + 68.1885px));
     top: 4.25vh;
     display: grid;
     gap: 23px;
 }
 
 .info-images img {
-    width: 272.7539px;
-    height: 177.5925px;
+    width: calc(12.0875vw + 68.1885px);
+    height: calc(7.871vw + 44.41px);
     object-fit: cover;
     display: block;
 }
@@ -998,18 +998,6 @@ body.metrics-ready #data-monitor {
     grid-template-columns: max-content max-content;
     column-gap: 24px;
     justify-self: start;
-}
-
-.info-sources {
-    width: 272.7539px;
-    grid-template-columns: max-content 1fr;
-    justify-self: end;
-}
-
-.info-sources p {
-    justify-self: end;
-    text-align: right;
-    text-align-last: right;
 }
 
 .info-contact {
