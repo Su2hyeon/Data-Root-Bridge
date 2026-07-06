@@ -103,14 +103,9 @@ let lastColorStateKey = "";
 let lastBrightnessStateKey = "";
 
 function syncStageScale() {
-    const useFixedStage = window.innerWidth >= STAGE_WIDTH && window.innerHeight >= STAGE_HEIGHT;
-    document.body.classList.toggle("imac-stage", useFixedStage);
-    document.documentElement.style.setProperty("--stage-width", useFixedStage ? `${STAGE_WIDTH}px` : "100vw");
-    document.documentElement.style.setProperty("--stage-height", useFixedStage ? `${STAGE_HEIGHT}px` : "100vh");
-    document.documentElement.style.setProperty(
-        "--stage-scale",
-        useFixedStage ? String(Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT)) : "1"
-    );
+    document.documentElement.style.setProperty("--stage-width", "100vw");
+    document.documentElement.style.setProperty("--stage-height", "100vh");
+    document.documentElement.style.setProperty("--stage-scale", "1");
 }
 
 syncStageScale();
