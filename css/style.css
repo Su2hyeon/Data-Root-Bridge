@@ -966,8 +966,9 @@ body.metrics-ready #data-monitor {
 }
 
 .info-images img {
-    width: calc(12.0875vw + 68.1885px);
-    height: calc(7.871vw + 44.41px);
+    width: clamp(280px, 14vw, 335px);
+    aspect-ratio: 1.52 / 1;
+    height: auto;
     object-fit: cover;
     display: block;
 }
