@@ -3,6 +3,9 @@
     --stage-width: 100vw;
     --stage-height: 100vh;
     --stage-scale: 1;
+    --info-vw: 1vw;
+    --info-vh: 1vh;
+    --info-offset-x: 0px;
 
             /* stage 1 / clean */
     --bg-stage-1: #f8f8f8;
