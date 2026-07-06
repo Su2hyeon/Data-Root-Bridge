@@ -106,6 +106,19 @@ function syncStageScale() {
     document.documentElement.style.setProperty("--stage-width", "100vw");
     document.documentElement.style.setProperty("--stage-height", "100vh");
     document.documentElement.style.setProperty("--stage-scale", "1");
+
+    const infoRatio = 1512 / 850;
+    const shouldNormalizeInfo = window.innerWidth >= 1600;
+    const virtualInfoWidth = shouldNormalizeInfo
+        ? Math.min(window.innerWidth, window.innerHeight * infoRatio)
+        : window.innerWidth;
+    const infoOffsetX = shouldNormalizeInfo
+        ? Math.max(0, (window.innerWidth - virtualInfoWidth) / 2)
+        : 0;
+
+    document.documentElement.style.setProperty("--info-vw", `${virtualInfoWidth / 100}px`);
+    document.documentElement.style.setProperty("--info-vh", "1vh");
+    document.documentElement.style.setProperty("--info-offset-x", `${infoOffsetX}px`);
 }
 
 syncStageScale();
