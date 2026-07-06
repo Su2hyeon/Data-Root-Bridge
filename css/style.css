@@ -838,13 +838,17 @@ body.metrics-ready #data-monitor {
     width: 100vw;
     height: 100vh;
     max-width: 1400px;
-    --info-image-width: clamp(280px, 14vw, 335px);
-    --info-image-right: calc(70.52vw + 272.7539px);
+    --info-image-width: clamp(260px, calc(14 * var(--info-vw)), 300px);
+    --info-image-right: calc(var(--info-offset-x) + (70.52 * var(--info-vw)) + 272.7539px);
+    --info-image-top-1: 37px;
+    --info-image-step: calc(((48.33 * var(--info-vh)) - 57px) / 2);
+    --info-image-top-2: calc(var(--info-image-top-1) + var(--info-image-step));
+    --info-image-top-3: calc(var(--info-image-top-1) + var(--info-image-step) * 2);
     pointer-events: none;
     color: var(--text-main);
     display: flex;
     flex-direction: column;
-    padding: 4vh 3.8vw 8vh 12.33vw;
+    padding: calc(4 * var(--info-vh)) calc(3.8 * var(--info-vw)) calc(8 * var(--info-vh)) calc(12.33 * var(--info-vw));
     box-sizing: border-box;
     font-size: 9pt;
     line-height: 1.42;
@@ -895,54 +899,54 @@ body.metrics-ready #data-monitor {
 
 .info-intro {
     position: absolute;
-    left: 56px;
-    top: 37px;
+    left: calc(var(--info-offset-x) + 56px);
+    top: var(--info-image-top-1);
     display: grid;
-    grid-template-columns: calc(12.33vw - 56px) 35vw;
+    grid-template-columns: calc((12.33 * var(--info-vw)) - 56px) calc(35 * var(--info-vw));
     column-gap: 0;
-    max-width: calc(12.33vw - 56px + 35vw);
+    max-width: calc((12.33 * var(--info-vw)) - 56px + (35 * var(--info-vw)));
 }
 
 .info-section {
     position: absolute;
-    width: 35vw;
+    width: calc(35 * var(--info-vw));
     min-height: 150px;
 }
 
 .info-visual {
-    left: 12.33vw;
-    top: 23vh;
+    left: calc(var(--info-offset-x) + (12.33 * var(--info-vw)));
+    top: calc(var(--info-image-top-2) - (3.33 * var(--info-vh)));
 }
 
 .info-concept {
-    left: 12.39vw;
-    top: 45vh;
+    left: calc(var(--info-offset-x) + (12.39 * var(--info-vw)));
+    top: calc(var(--info-image-top-3) - (3.33 * var(--info-vh)));
 }
 
 .info-data {
-    left: 12.33vw;
-    top: 68vh;
+    left: calc(var(--info-offset-x) + (12.33 * var(--info-vw)));
+    top: calc(65.5 * var(--info-vh));
 }
 
 .info-section-content h2 {
     position: absolute;
-    left: 17.2vw;
+    left: calc(17.2 * var(--info-vw));
     top: 0;
-    width: 25vw;
+    width: calc(25 * var(--info-vw));
 }
 
 .info-section-content p {
     position: absolute;
     left: 0;
-    top: 3.33vh;
-    width: 35vw;
+    top: calc(3.33 * var(--info-vh));
+    width: calc(35 * var(--info-vw));
 }
 
 .info-data .info-section-content {
     position: absolute;
-    left: 17.28vw;
+    left: calc(17.28 * var(--info-vw));
     top: 0;
-    width: 25vw;
+    width: calc(25 * var(--info-vw));
 }
 
 .info-data-list {
@@ -962,12 +966,15 @@ body.metrics-ready #data-monitor {
 .info-images {
     position: absolute;
     left: calc(var(--info-image-right) - var(--info-image-width));
-    top: 4.25vh;
-    display: grid;
-    gap: 23px;
+    top: 0;
+    width: var(--info-image-width);
+    height: 100%;
+    display: block;
 }
 
 .info-images img {
+    position: absolute;
+    left: 0;
     width: var(--info-image-width);
     aspect-ratio: 1.52 / 1;
     height: auto;
@@ -975,17 +982,29 @@ body.metrics-ready #data-monitor {
     display: block;
 }
 
+.info-images img:nth-child(1) {
+    top: var(--info-image-top-1);
+}
+
+.info-images img:nth-child(2) {
+    top: var(--info-image-top-2);
+}
+
+.info-images img:nth-child(3) {
+    top: var(--info-image-top-3);
+}
+
 .info-footer {
     position: absolute;
-    left: 12.33vw;
-    width: calc(var(--info-image-right) - 12.33vw);
+    left: calc(var(--info-offset-x) + (12.33 * var(--info-vw)));
+    width: calc(var(--info-image-right) - (var(--info-offset-x) + (12.33 * var(--info-vw))));
     right: auto;
-    bottom: 4.3vh;
+    bottom: calc(4.3 * var(--info-vh));
     top: auto;
 
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    column-gap: 3.28vw;
+    column-gap: calc(3.28 * var(--info-vw));
     align-items: flex-start;
 }
 
@@ -1013,7 +1032,7 @@ body.metrics-ready #data-monitor {
     grid-template-columns: 50px max-content;
     column-gap: 24px;
     align-items: start;
-    transform: translateX(calc(1.91vw - 55px));
+    transform: translateX(calc((1.91 * var(--info-vw)) - 55px));
 }
 
 .info-contact p { 
