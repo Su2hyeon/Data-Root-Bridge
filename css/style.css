@@ -1000,6 +1000,18 @@ body.metrics-ready #data-monitor {
     justify-self: start;
 }
 
+.info-sources {
+    width: 272.7539px;
+    grid-template-columns: max-content 1fr;
+    justify-self: end;
+}
+
+.info-sources p {
+    justify-self: end;
+    text-align: right;
+    text-align-last: right;
+}
+
 .info-contact {
     display: grid;
     grid-template-columns: 50px max-content;
