@@ -61,19 +61,8 @@ span,
     box-sizing: border-box;
 }
 
-body.imac-stage {
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-body.imac-stage #app-wrapper {
-    flex: 0 0 auto;
+#app-wrapper {
     overflow: hidden;
-    transform: scale(var(--stage-scale));
-    transform-origin: center center;
 }
 
 /* 111.png 스타일의 사방 여백 적용 및 상하 양끝 정렬 */
@@ -825,6 +814,7 @@ body.metrics-ready #data-monitor {
     background-color: var(--bg-white);
     color: var(--text-main);
     font-family: "DataRootGrotesk", sans-serif;
+    overflow: hidden;
 }
 
 #info-overlay.active {
