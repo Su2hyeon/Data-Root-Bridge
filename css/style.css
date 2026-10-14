@@ -212,12 +212,7 @@ body.metrics-ready #data-monitor {
 }
 
 .monitor-row .val.metric-changed span {
-    color: var(--globe-brown) !important;
-}
-
-:root[data-color-stage="5"] .monitor-row .val.metric-changed span,
-:root[data-color-stage="6"] .monitor-row .val.metric-changed span {
-    color: var(--root-intervention-color) !important;
+    color: var(--metric-changed-color) !important;
 }
 
 /* 구버전 고정 위치 지정자들 완벽 초기화 */
@@ -797,6 +792,10 @@ body.metrics-ready #data-monitor {
 }
 
 #info-overlay-logo {
+    position: fixed;
+    left: 56px;
+    top: 37px;
+    z-index: 3;
     visibility: visible;
     pointer-events: auto;
     cursor: pointer;
@@ -905,6 +904,10 @@ body.metrics-ready #data-monitor {
     grid-template-columns: calc((12.33 * var(--info-vw)) - 56px) calc(35 * var(--info-vw));
     column-gap: 0;
     max-width: calc((12.33 * var(--info-vw)) - 56px + (35 * var(--info-vw)));
+}
+
+.info-intro > p {
+    grid-column: 2;
 }
 
 .info-section {
@@ -1032,7 +1035,7 @@ body.metrics-ready #data-monitor {
     grid-template-columns: 50px max-content;
     column-gap: 24px;
     align-items: start;
-    transform: translateX(calc((1.91 * var(--info-vw)) - 55px));
+    transform: translateX(calc((1.91 * var(--info-vw)) - 58px));
 }
 
 .info-contact p { 
