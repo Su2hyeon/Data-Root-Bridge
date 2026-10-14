@@ -12,9 +12,9 @@ const RECOVERY_COLOR = "#3f6f64";
 const RECOVERY_OLD_COLOR = "#7b8d88";
 const MAX_RECOVERY_ACTIONS = 180;
 const RECOVERY_BURST_ROOTS = 30;
-const RECOVERY_TARGET_ROOTS = 180;
+const RECOVERY_STRAND_SLOTS = 53; // Retire complete growth groups while allowing new roots.
 const RECOVERY_DISSOLVE_NODES = 15;
-const MAX_SUPPORT_UNDERGROWTH_NODES = 80;
+const MAX_SUPPORT_UNDERGROWTH_NODES = 130;
 const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1200;
 const EMISSION_FACTORS = {
@@ -98,6 +98,7 @@ let anchorPositions = { left: null, right: null };
 let activeInterventionStart = 0;
 let activeInterventionEnd = 0;
 let recoveryActionCount = 0;
+let lastStageOneRecoveryTarget = null;
 let bulkRenderDepth = 0;
 let lastColorStateKey = "";
 let lastBrightnessStateKey = "";
@@ -349,6 +350,7 @@ function interventionStepDetail() {
 }
 
 function recoveryCollapseFactor() {
+    if(manualInterventionCount() <= -7) return 0;
     return clamp(contractionStrength() - negativeInterventionCount() * 0.08, 0, 1);
 }
 
@@ -363,6 +365,7 @@ function shouldHideCollapsedRecovery(item) {
 
 function getLinkStrokeWidth(link, aged = false) {
     if(!link) return 0.6;
+    if(link.target.upperBridgeTwig) return aged ? 0.58 : 0.8;
     const pressure = interventionPressureScale();
     if(link.intervention) return link.activeIntervention ? 1.12 + pressure * 0.26 : 0.58;
     if(link.recovery) return link.kind === "recovery-offshoot" ? 0.9 : 1.45;
@@ -373,11 +376,12 @@ function getLinkStrokeWidth(link, aged = false) {
 
 function getLinkStrokeOpacity(link, aged = false) {
     if(!link) return 0.2;
+    if(link.source.upperBridgeRoot || link.target.upperBridgeRoot) return link.target.upperBridgeTwig ? (aged ? 0.18 : 0.27) : (aged ? 0.28 : 0.38);
     if(link.recovery) return (aged ? 0.48 : 0.78) * (1 - recoveryCollapseFactor() * (link.kind === "recovery-offshoot" ? 0.62 : 0.38));
     if(link.intervention) return interventionOpacity(aged ? "aged-line" : "line", link.activeIntervention);
     if((link.source && link.source.seedMode === "support-under") || (link.target && link.target.seedMode === "support-under")) return aged ? 0.5 : 0.72;
     if(link.kind === "microbe") return aged ? 0.34 : 0.48;
-    if(link.kind === "cross") return aged ? 0.28 : 0.42;
+    if(link.kind === "cross") return aged ? 1 : 0.42;
     return aged ? getAgedRootOpacity() * 0.62 : 0.58 + metrics.stressLevel * 0.22;
 }
 
@@ -899,6 +903,7 @@ const linkLayer = viewport.append("g").attr("class", "link-layer");
 const nodeLayer = viewport.append("g").attr("class", "node-layer");
 const tooltip = d3.select("#custom-tooltip");
 let currentZoomTransform = d3.zoomIdentity;
+let zoomingRoots = false;
 
 function isCanvasBackgroundEvent(event) {
     return event.target === svg.node();
@@ -907,10 +912,15 @@ function isCanvasBackgroundEvent(event) {
 const zoom = d3.zoom()
     .filter(event => {
         if(draggingAnchor || draggingRoot) return false;
-        if(event.type === "wheel") return true;
+        if(event.type === "wheel" || event.type === "dblclick") return true;
         return isCanvasBackgroundEvent(event);
     })
     .scaleExtent([0.35, 3.5])
+    .on("start", () => {
+        zoomingRoots = true;
+        if(typeof resetElasticPointer === "function") resetElasticPointer();
+    })
+    .on("end", () => { zoomingRoots = false; })
     .on("zoom", e => {
         if(draggingAnchor || draggingRoot) return;
         currentZoomTransform = e.transform;
@@ -935,6 +945,15 @@ function distancePointToSegment(point, a, b) {
     return distanceBetween(point, { x: a.x + dx * t, y: a.y + dy * t });
 }
 
+function linkShapeStress(link) {
+    if(manualInterventionCount() <= -7) {
+        if(!Number.isFinite(link.cleanShapeStress)) link.cleanShapeStress = metrics.stressLevel;
+        return link.cleanShapeStress;
+    }
+    link.cleanShapeStress = metrics.stressLevel;
+    return metrics.stressLevel;
+}
+
 function distanceToLinkCurve(point, link) {
     if(!link || !link.source || !link.target) return Number.POSITIVE_INFINITY;
     const { source, target, intervention, recovery } = link;
@@ -942,9 +961,9 @@ function distanceToLinkCurve(point, link) {
     const interventionSign = stableRand(`${source.id}-${target.id}`, 42) > 0.5 ? 1 : -1;
     const recoveryBend = interventionSign * (4 + stableRand(`${source.id}-${target.id}`, 44) * 8);
     const microbialBend = interventionSign * (22 + stableRand(`${source.id}-${target.id}`, 45) * 86);
-    const bend = recovery
+    const bend = (recovery || source.upperBridgeRoot || target.upperBridgeRoot)
         ? recoveryBend
-        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (link.kind === "microbe" ? microbialBend : (link.kind === "cross" ? 7 : 18 * metrics.stressLevel)));
+        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (link.kind === "microbe" ? microbialBend : (link.kind === "cross" ? 7 : 18 * linkShapeStress(link))));
     const p0 = { x: source.x, y: source.y };
     const p1 = { x: source.x + dx * 0.34, y: source.y + bend };
     const p2 = { x: source.x + dx * 0.68, y: target.y - bend };
@@ -1128,7 +1147,7 @@ function distanceBetween(a, b) {
 function getDownwardRootParent(side, seedKey = null) {
     const anchor = getAnchorNode(side);
     const candidates = rootNodes
-        .filter(node => node.side === side && node.layer !== "anchorage")
+        .filter(node => node.side === side && node.layer !== "anchorage" && !node.upperBridgeRoot)
         .filter(node => !seedKey || Number.isFinite(node.dataYear))
         .sort((a, b) => (b.y + Math.abs(b.x - anchor.x) * 0.42) - (a.y + Math.abs(a.x - anchor.x) * 0.42));
     const pool = candidates.slice(0, 24);
@@ -1144,7 +1163,7 @@ function getBridgeParent(layerName, x, y) {
     if(rootNodes.length <= 2) return anchors[0] || getAnchorNode("left");
 
     const layerCandidates = rootNodes
-        .filter(node => node.layer === layerName || node.layer === "primary")
+        .filter(node => !node.upperBridgeRoot && (node.layer === layerName || node.layer === "primary"))
         .sort((a, b) => distanceBetween(a, { x, y }) - distanceBetween(b, { x, y }));
 
     return layerCandidates[0] || choose(rootNodes);
@@ -1165,20 +1184,26 @@ function getCurrentAnchorFrame() {
 }
 
 function getInterventionParent(seedKey) {
-    const candidates = rootNodes.filter(node => !node.intervention);
+    const candidates = rootNodes.filter(node => !node.intervention && !node.upperBridgeRoot);
     if(!candidates.length) return getAnchorNode(stableSide(seedKey));
     return candidates[Math.floor(stableRand(seedKey, 12) * candidates.length)] || candidates[0];
 }
 
-function getRecoveryParent(side) {
+function recoveryWindowStart(target) {
+    // Retire whole anchor-rooted strands, preserving the parents of retained tips.
+    return Math.floor(Math.max(0, target - MAX_RECOVERY_ACTIONS + RECOVERY_STRAND_SLOTS) / RECOVERY_STRAND_SLOTS) * RECOVERY_STRAND_SLOTS;
+}
+
+function getRecoveryParent(side, slot = recoveryActionCount) {
+    const groupStart = Math.floor(slot / RECOVERY_STRAND_SLOTS) * RECOVERY_STRAND_SLOTS;
     const grownTips = rootNodes
-        .filter(node => node.recovery && node.recoverySide === side && !node.recoveryOffshoot)
+        .filter(node => node.recovery && node.recoverySide === side && !node.recoveryOffshoot && node.recoverySlot >= groupStart && node.recoverySlot < slot)
         .sort((a, b) => b.id - a.id);
     if(grownTips.length && Math.random() > 0.28) {
         return grownTips[Math.floor(Math.random() * Math.min(grownTips.length, 4))] || grownTips[0];
     }
     const bridgeCandidates = rootNodes
-        .filter(node => !node.intervention && node.layer !== "anchorage" && (node.side === side || !node.side))
+        .filter(node => !node.intervention && !node.recovery && !node.upperBridgeRoot && node.layer !== "anchorage" && (node.side === side || !node.side))
         .sort((a, b) => b.id - a.id)
         .slice(0, 24);
     if(bridgeCandidates.length && Math.random() > 0.42) {
@@ -1213,6 +1238,122 @@ function cumulativeLayerFor(row, mode) {
     return stableRand((row && row.sampleId) || config.year, 31) > 0.35 ? "deck" : "mesh";
 }
 
+function syncUpperBridgeRoots() {
+    const stage = colorScoreToStage(manualInterventionCount());
+    const existing = rootNodes.filter(node => node.upperBridgeRoot);
+    const isDefaultState = positiveInterventionCount() === 0 && negativeInterventionCount() === 0;
+    if(isDefaultState || stage > 4) {
+        removeNodesFromCanvas(new Set(existing));
+        return;
+    }
+    const frame = getCurrentAnchorFrame();
+    const span = frame.rightX - frame.leftX;
+    const bridgeNodes = rootNodes.filter(node => node.layer !== "anchorage" && !node.intervention &&
+        !node.upperBridgeRoot && node.seedMode !== "support-under" &&
+        node.x > frame.leftX && node.x < frame.rightX && Math.abs(node.y - frame.midY) < height * 0.16);
+    if(bridgeNodes.length < 2) return;
+    const nearest = x => bridgeNodes.reduce((best, node) =>
+        Math.abs(node.x - x) + Math.abs(node.y - frame.midY) * 0.5 <
+        Math.abs(best.x - x) + Math.abs(best.y - frame.midY) * 0.5 ? node : best);
+    const cleanSteps = Math.max(0, -manualInterventionCount());
+    const target = stage === 1 ? 5 + Math.floor(Math.max(0, recoveryActionCount - 75) / 30)
+        : cleanSteps > 0 ? Math.min(5, Math.max(0, cleanSteps - 1)) : stage <= 3 ? 5 : 4;
+    const groups = new Set(existing.map(node => node.upperBridgeGroup));
+    bulkRenderDepth += 1;
+    try {
+        for(let group = 0; group < target; group++) {
+            if(groups.has(group)) continue;
+            if(stage !== 1 && rootNodes.length + 20 > MAX_NODES) break;
+            const seed = `upper-bridge-${config.lat.toFixed(3)}-${config.lon.toFixed(3)}-${group}`;
+            const rand = salt => stableRand(seed, salt);
+            // Overlapping irregular upper branches at varied heights and spans.
+            const startProgress = group === 0 ? 0.02 : group === 1 ? 0.40 : 0.02 + rand(1) * 0.36;
+            const endProgress = Math.min(0.98, startProgress + 0.42 + rand(2) * 0.3);
+            const start = nearest(frame.leftX + span * startProgress);
+            const end = nearest(frame.leftX + span * endProgress);
+            if(start === end) continue;
+            const rise = Math.min(height * (0.24 + rand(3) * 0.15), Math.min(start.y, end.y) - 70);
+            if(rise < 25) continue;
+            let elevation = 0.65 + rand(4) * 0.25;
+            const lateralSpread = (group % 2 === 0 ? -1 : 1) * width * (0.05 + rand(5) * 0.07);
+            const peaks = [];
+            let parent = start;
+            for(let step = 1; step <= 5; step++) {
+                const t = step / 6;
+                elevation = clamp(elevation + (rand(140 + step) - 0.45) * 0.34, 0.5, 0.98);
+                const node = {
+                    id: nextNodeId++, layer: "primary", side: t < 0.5 ? start.side : end.side,
+                    x: clamp(start.x + (end.x - start.x) * t + lateralSpread * Math.sin(t * Math.PI) + (rand(10 + step) - 0.5) * 26, 72, width - 72),
+                    y: start.y + (end.y - start.y) * t - rise * elevation + (rand(20 + step) - 0.5) * 14,
+                    text: "[upper supporting root]", weight: 1.4, stage: 1,
+                    source: "Upper aerial root supporting the central bridge",
+                    seedMode: "upper-bridge", seedKey: `${seed}-${step}`,
+                    upperBridgeRoot: true, upperBridgeGroup: group
+                };
+                node.baseX = node.x;
+                node.baseY = node.y;
+                rootNodes.push(node);
+                addBridgeLink(parent, node, "primary");
+                drawNode(node);
+                peaks.push(node);
+                parent = node;
+            }
+            addBridgeLink(parent, end, "primary");
+            // Short hanging strands join the elevated roots back to the bridge mesh.
+            [peaks[1], peaks[3]].forEach((top, index) => {
+                const foot = nearest(top.x + (rand(30 + index) - 0.5) * span * 0.1);
+                const node = {
+                    id: nextNodeId++, layer: "mesh", side: foot.side,
+                    x: top.x * 0.55 + foot.x * 0.45 + (rand(40 + index) - 0.5) * 22,
+                    y: top.y * 0.45 + foot.y * 0.55,
+                    text: "[hanging support root]", weight: 1, stage: 1,
+                    source: "Hanging aerial root connected to the bridge mesh",
+                    seedMode: "upper-bridge", seedKey: `${seed}-hanging-${index}`,
+                    upperBridgeRoot: true, upperBridgeGroup: group
+                };
+                node.baseX = node.x; node.baseY = node.y;
+                rootNodes.push(node);
+                addBridgeLink(top, node, "primary");
+                addBridgeLink(node, foot, "primary");
+                drawNode(node);
+            });
+            peaks.forEach((joint, index) => {
+                let tip;
+                for(let fork = 0; fork < 2; fork++) {
+                    const salt = 60 + index * 8 + fork * 3;
+                    const direction = fork === 0 ? -1 : 1;
+                    const node = {
+                        id: nextNodeId++, layer: "mesh", side: joint.side,
+                        x: joint.x + direction * (16 + rand(salt) * 38),
+                        y: joint.y + (rand(salt + 1) - 0.35) * 62,
+                        text: "[fine aerial root]", weight: 0.6, stage: 1,
+                        source: "Fine branch of the upper supporting roots",
+                        seedMode: "upper-bridge", seedKey: `${seed}-twig-${index}-${fork}`,
+                        upperBridgeRoot: true, upperBridgeTwig: true, upperBridgeGroup: group
+                    };
+                    node.baseX = node.x; node.baseY = node.y;
+                    rootNodes.push(node);
+                    addBridgeLink(joint, node, "primary");
+                    drawNode(node);
+                    tip = node;
+                }
+                if(index % 2 === 0) {
+                    const node = { ...tip, id: nextNodeId++,
+                        x: tip.x + (rand(110 + index) - 0.5) * 42,
+                        y: tip.y + 12 + rand(120 + index) * 26,
+                        seedKey: `${seed}-terminal-${index}` };
+                    node.baseX = node.x; node.baseY = node.y;
+                    rootNodes.push(node);
+                    addBridgeLink(tip, node, "primary");
+                    drawNode(node);
+                }
+            });
+        }
+    } finally { bulkRenderDepth -= 1; }
+    lastBrightnessStateKey = "";
+    refreshFormMode();
+}
+
 function seedCumulativeBridge(options = {}) {
     if(!stableBridgeSeedRows.length) return;
     const growthState = options.baseFrameOnly ? "neutral" : bridgeGrowthState();
@@ -1244,6 +1385,7 @@ function seedCumulativeBridge(options = {}) {
             seedInterventionOverlay();
             seedRecoveryRoots();
         }
+        syncUpperBridgeRoots();
     } finally {
         bulkRenderDepth -= 1;
     }
@@ -1345,8 +1487,9 @@ function applyCumulativeYearMorph() {
     const morph = yearMorphStrength();
     rootNodes.forEach(node => {
         ensureBasePosition(node);
+        if(node.upperBridgeRoot) return;
         if(node.layer === "anchorage") return;
-        if(node.intervention || node.recovery || node.seedMode === "support-under") {
+        if(node.intervention || node.recovery || node.upperBridgeRoot || node.seedMode === "support-under") {
             node.x = node.baseX;
             node.y = node.baseY;
             return;
@@ -1369,6 +1512,8 @@ function applyCumulativeYearMorph() {
 }
 
 function applyBridgeStressMorph() {
+    // Stage 1 adds growth without re-deforming the bridge already on screen.
+    if(manualInterventionCount() <= -7) return;
     const stress = contractionStrength();
     const stepDetail = interventionStepDetail();
     const stepPhase = manualInterventionCount() * 0.47;
@@ -1377,7 +1522,8 @@ function applyBridgeStressMorph() {
     const frame = getCurrentAnchorFrame();
     const centerX = frame.leftX + (frame.rightX - frame.leftX) * 0.5;
     const centerY = frame.midY - height * (0.04 + instability * 0.075) + Math.sin(stepPhase) * stepDetail * 4;
-    const anchorPull = clamp(instability * 0.42, 0, 0.58);
+    const finalStagePull = clamp((manualInterventionCount() - 6) / 2, 0, 1) * 0.30;
+    const anchorPull = clamp(instability * 0.42 + finalStagePull, 0, 0.68);
 
     rootNodes.forEach(node => {
         ensureBasePosition(node);
@@ -1418,10 +1564,13 @@ function applyBridgeStressMorph() {
 
         node.x = clamp(morphBaseX + (centerX - morphBaseX) * pull + side * twist * knotRadius + crossTwist * 0.35, canvasMinX(), canvasMaxX());
         node.y = clamp(morphBaseY + (centerY - morphBaseY) * pull * 0.68 + sagLift + crossTwist, canvasMinY(), canvasMaxY());
+        node.x += (centerX - node.x) * finalStagePull;
+        node.y += (centerY - node.y) * finalStagePull;
     });
 }
 
 function freeActionNodeCapacity(requiredCount = 1) {
+    if(manualInterventionCount() <= -7) return;
     const overflow = rootNodes.length + requiredCount - MAX_NODES;
     if(overflow <= 0) return;
     const removedNodes = new Set(rootNodes
@@ -1441,6 +1590,12 @@ function freeActionNodeCapacity(requiredCount = 1) {
 }
 
 function syncInterventionOverlay(previousCount, nextCount) {
+    if(manualInterventionCount() <= -7) {
+        // Keep geometry, but refresh active/aged colors against the current state.
+        refreshInterventionStyles();
+        updateSystemMonitor();
+        return;
+    }
     if(nextCount > previousCount) {
         freeActionNodeCapacity(nextCount - previousCount);
         for(let i = previousCount; i < nextCount; i++) createBridgeNode(null, "intervention", i);
@@ -1454,14 +1609,7 @@ function syncInterventionOverlay(previousCount, nextCount) {
 }
 
 function seedRecoveryRoots() {
-    const count = Math.min(recoveryActionCount, MAX_RECOVERY_ACTIONS);
-    for(let i = 0; i < count; i++) {
-        const node = createBridgeNode(null, "recovery", i);
-        if(node && (i % 2 === 1 || stableRand(`recovery-seed-offshoot-${i}`, 2) > 0.62)) {
-            createRecoveryOffshoot(node, i);
-            if(stableRand(`recovery-seed-double-${i}`, 5) > 0.76) createRecoveryOffshoot(node, i + 1000);
-        }
-    }
+    syncRecoveryRootsToCount(lastStageOneRecoveryTarget ?? recoveryActionCount);
 }
 
 function ensureRecoveryBridgeBase() {
@@ -1499,7 +1647,7 @@ function ensureRecoveryBridgeBase() {
 function createRecoveryOffshoot(parentNode, seedIndex) {
     if(!parentNode) return;
     if(rootNodes.length >= MAX_NODES) freeActionNodeCapacity(1);
-    if(rootNodes.length >= MAX_NODES) return;
+    if(rootNodes.length >= MAX_NODES && manualInterventionCount() > -7) return;
     const seedKey = `recovery-offshoot-${seedIndex}-${parentNode.id}`;
     const sideDrift = parentNode.recoverySide === "left" ? 1 : -1;
     const forkDirection = stableRand(seedKey, 9) > 0.42 ? sideDrift : -sideDrift;
@@ -1532,43 +1680,44 @@ function createRecoveryOffshoot(parentNode, seedIndex) {
 }
 
 function appendRecoveryRoots(type, amount) {
-    const collapse = recoveryCollapseFactor();
-    for(let i = 0; i < amount && recoveryActionCount < MAX_RECOVERY_ACTIONS; i++) {
-        const newRecoveryIndex = recoveryActionCount;
-        recoveryActionCount += 1;
-        const node = createBridgeNode(null, "recovery", newRecoveryIndex);
-        if(node) {
-            createRecoveryOffshoot(node, newRecoveryIndex);
-            if(collapse < 0.72 && stableRand(`recovery-burst-extra-${newRecoveryIndex}`, 6) > 0.32) {
-                createRecoveryOffshoot(node, newRecoveryIndex + 2000);
-            }
-        }
-    }
-    metrics.lastIntervention = `Protective action reducing ${counterImpactLabel(type)}: recovery roots expand while deformed blue strands dissolve.`;
+    syncRecoveryRootsToCount(recoveryActionCount + amount, type);
 }
 
 function growRecoveryBurst(type, amount = RECOVERY_BURST_ROOTS) {
     ageExistingRoots();
     const collapse = recoveryCollapseFactor();
-    const visibleAmount = Math.max(2, Math.round(amount * (1 - collapse * 0.42)));
-    appendRecoveryRoots(type, visibleAmount);
+    appendRecoveryRoots(type, Math.max(2, Math.round(amount * (1 - collapse * 0.42))));
 }
 
 function syncRecoveryRootsToCount(targetCount, type = "preview") {
-    const target = Math.round(clamp(targetCount, 0, MAX_RECOVERY_ACTIONS));
-    if(target < recoveryActionCount) {
-        const removedNodes = new Set(rootNodes.filter(node =>
-            node.recovery &&
-            Number.isFinite(node.recoverySlot) &&
-            node.recoverySlot >= target
-        ));
-        removeNodesFromCanvas(removedNodes);
-        recoveryActionCount = target;
+    const requestedTarget = Math.max(0, Math.round(targetCount));
+    const accumulate = manualInterventionCount() <= -7;
+    const target = accumulate
+        ? (lastStageOneRecoveryTarget === null ? Math.max(recoveryActionCount, requestedTarget)
+            : recoveryActionCount + Math.max(0, requestedTarget - lastStageOneRecoveryTarget))
+        : requestedTarget;
+    lastStageOneRecoveryTarget = accumulate ? requestedTarget : null;
+    const firstSlot = accumulate ? 0 : recoveryWindowStart(target);
+    if(!accumulate) removeNodesFromCanvas(new Set(rootNodes.filter(node =>
+        node.recovery && !node.timeRecovery && Number.isFinite(node.recoverySlot) &&
+        (node.recoverySlot < firstSlot || node.recoverySlot >= target)
+    )));
+    if(target > 0) ensureRecoveryBridgeBase();
+    const existingSlots = new Set(rootNodes.filter(node => node.recovery && !node.recoveryOffshoot && !node.timeRecovery).map(node => node.recoverySlot));
+    for(let slot = firstSlot; slot < target; slot++) {
+        if(existingSlots.has(slot)) continue;
+        freeActionNodeCapacity(3);
+        const node = createBridgeNode(null, "recovery", slot);
+        if(node) {
+            createRecoveryOffshoot(node, slot);
+            if(recoveryCollapseFactor() < 0.72 && stableRand(`recovery-burst-extra-${slot}`, 6) > 0.32) {
+                createRecoveryOffshoot(node, slot + 2000);
+            }
+        }
     }
-    if(target > recoveryActionCount) {
-        ensureRecoveryBridgeBase();
-        appendRecoveryRoots(type, target - recoveryActionCount);
-    }
+    recoveryActionCount = target;
+    // A stage's colors and clamped metrics can stay unchanged while roots grow.
+    lastBrightnessStateKey = "";
 }
 
 function removeTemporalRecoveryRoots() {
@@ -1730,7 +1879,7 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
     if((seedMode === "intervention" || seedMode === "recovery") && rootNodes.length >= MAX_NODES) {
         freeActionNodeCapacity(1);
     }
-    if(rootNodes.length >= MAX_NODES) {
+    if(rootNodes.length >= MAX_NODES && !(seedMode === "recovery" && manualInterventionCount() <= -7)) {
         metrics.lastIntervention = "Root field is full; existing growth is preserved instead of being rebuilt.";
         if(!bulkRenderDepth) updateSystemMonitor();
         return null;
@@ -1781,7 +1930,7 @@ function createBridgeNode(seedRow = null, seedMode = "live", seedIndex = null) {
         const side = seedIndex % 2 === 0 ? "left" : "right";
         const oppositeSide = side === "left" ? "right" : "left";
         const oppositeAnchor = getAnchorNode(oppositeSide);
-        parentNode = getRecoveryParent(side);
+        parentNode = getRecoveryParent(side, seedIndex);
         const tipCount = rootNodes.filter(node => node.recovery && node.recoverySide === side && !node.recoveryOffshoot).length;
         const step = 0.08 + rand(17) * 0.16;
         const dx = oppositeAnchor.x - parentNode.x;
@@ -1941,9 +2090,9 @@ function linkPath(link) {
     const interventionSign = stableRand(`${source.id}-${target.id}`, 42) > 0.5 ? 1 : -1;
     const recoveryBend = interventionSign * (4 + stableRand(`${source.id}-${target.id}`, 44) * 8);
     const microbialBend = interventionSign * (22 + stableRand(`${source.id}-${target.id}`, 45) * 86);
-    const bend = recovery
+    const bend = (recovery || source.upperBridgeRoot || target.upperBridgeRoot)
         ? recoveryBend
-        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "microbe" ? microbialBend : (kind === "cross" ? 7 : 18 * metrics.stressLevel)));
+        : (intervention ? interventionSign * (35 + stableRand(`${source.id}-${target.id}`, 43) * 96) : (kind === "microbe" ? microbialBend : (kind === "cross" ? 7 : 18 * linkShapeStress(link))));
     return `M${source.x},${source.y} C${source.x + dx*0.34},${source.y + bend} ${source.x + dx*0.68},${target.y - bend} ${target.x},${target.y}`;
 }
 
@@ -2385,7 +2534,7 @@ function pullRootsWithAnchor(anchorNode, dx, dy) {
 function drawNode(node) {
     const group = nodeLayer.append("g").datum(node).attr("class", `root-node root-fresh ${node.layer}-node${node.intervention ? " intervention-root" : ""}${node.activeIntervention ? " active-intervention" : ""}`).attr("transform", `translate(${node.x}, ${node.y})`);
     const interventionRadius = 3.25 + Math.max(0, 1 - contractionStrength()) * 0.65;
-    const radius = node.recovery ? (node.recoveryOffshoot ? 2.0 : 3.2) : (node.intervention ? interventionRadius : (node.layer === "anchorage" ? 5.5 : node.layer === "primary" ? 3.6 : node.layer === "mesh" ? 2.6 : 2.1));
+    const radius = node.upperBridgeRoot ? (node.upperBridgeTwig ? 1.6 : 2.6) : node.recovery ? (node.recoveryOffshoot ? 2.0 : 3.2) : (node.intervention ? interventionRadius : (node.layer === "anchorage" ? 5.5 : node.layer === "primary" ? 3.6 : node.layer === "mesh" ? 2.6 : 2.1));
     
     const hit = group.append("circle").attr("class", "root-node-hit")
         .attr("r", Math.max(13, radius * 3.6))
@@ -2430,12 +2579,18 @@ function drawNode(node) {
         .on("mouseleave", hideNodeTooltip);
 
     if(node.layer === "anchorage") {
+        let dragStart = null;
+        let anchorMoved = false;
         group.style("cursor", "move")
             .on("pointerdown.block-zoom mousedown.block-zoom touchstart.block-zoom", function(event) {
                 event.stopPropagation();
             })
             .call(d3.drag()
+                .filter(event => !event.button && (event.detail || 0) < 2)
                 .on("start", function(event) {
+                    dragStart = { x: event.x, y: event.y };
+                    anchorMoved = false;
+                    if(typeof resetElasticPointer === "function") resetElasticPointer();
                     if(event.sourceEvent) event.sourceEvent.stopPropagation();
                     draggingAnchor = true;
                     d3.select(this)
@@ -2447,6 +2602,8 @@ function drawNode(node) {
                         .style("stroke-width", 2.1);
                 })
                 .on("drag", function(event, d) {
+                    if(!anchorMoved && Math.hypot(event.x - dragStart.x, event.y - dragStart.y) * currentZoomTransform.k < 5) return;
+                    anchorMoved = true;
                     if(event.sourceEvent) event.sourceEvent.stopPropagation();
                     const nextX = clamp(event.x, 20, width - 20);
                     const nextY = clamp(event.y, 20, height - 20);
@@ -2466,8 +2623,10 @@ function drawNode(node) {
                 .on("end", function(event, d) {
                     if(event.sourceEvent) event.sourceEvent.stopPropagation();
                     draggingAnchor = false;
-                    d.baseX = d.x;
-                    d.baseY = d.y;
+                    if(anchorMoved) {
+                        d.baseX = d.x;
+                        d.baseY = d.y;
+                    }
                     d3.select(this)
                         .classed("anchor-dragging", false)
                         .select(".root-dot-node")
@@ -2530,6 +2689,7 @@ function getNodeRootColor(node, aged = false) {
 }
 
 function getNodeOpacity(node) {
+    if(node && node.upperBridgeRoot) return node.upperBridgeTwig ? 0.28 : 0.46;
     if(node && node.recovery) return (node.recoveryOffshoot ? 0.64 : 0.82) * (1 - recoveryCollapseFactor() * (node.recoveryOffshoot ? 0.58 : 0.34));
     if(node && node.intervention) return interventionOpacity("node", node.activeIntervention);
     if(node && node.layer === "anchorage") return 1;
@@ -2541,7 +2701,7 @@ function getNodeOpacity(node) {
 
 function applyBrightness(restart = true) {
     const isDark = config.brightness < 40;
-    const brightnessStateKey = `${config.brightness}:${lastColorStateKey}:${metrics.stressLevel.toFixed(3)}:${metrics.decay.toFixed(3)}:${metrics.plasticWasteKg.toFixed(3)}`;
+    const brightnessStateKey = `${config.brightness}:${manualInterventionCount()}:${lastColorStateKey}:${metrics.stressLevel.toFixed(3)}:${metrics.decay.toFixed(3)}:${metrics.plasticWasteKg.toFixed(3)}`;
     if(!restart && brightnessStateKey === lastBrightnessStateKey) return;
     lastBrightnessStateKey = brightnessStateKey;
     document.getElementById("right-panel").style.backgroundColor = "";
@@ -2672,6 +2832,7 @@ function handleCounterChange(type, delta) {
         syncInterventionOverlay(previousOverlayCount, nextOverlayCount);
     }
     metrics.lastIntervention = alertMsg;
+    syncUpperBridgeRoots();
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
@@ -2785,11 +2946,10 @@ function syncPollutionSlider() {
 
 function recoveryRootTargetForValue(value) {
     if(value >= 0) return 0;
-    const cleanValue = Math.abs(value);
-    const healthyTarget = Math.min(72, Math.max(8, Math.round(cleanValue * 6 + cleanValue * cleanValue * 1.55)));
-    if(cleanValue <= 8) return healthyTarget;
-    const beyondHealthy = cleanValue - 8;
-    return Math.min(RECOVERY_TARGET_ROOTS, Math.round(72 + beyondHealthy * 10 + beyondHealthy * beyondHealthy * 1.2));
+    const cleanSteps = Math.abs(value);
+    // Ease into recovery, meeting the existing target again at -6.
+    if(cleanSteps < 6) return Math.round(8 + (cleanSteps - 1) * 58 / 5);
+    return Math.round(12 + cleanSteps * 9);
 }
 
 function reliefRecoveryTargetForValue(value) {
@@ -2830,6 +2990,7 @@ function applyPollutionPreview(value) {
     }
     metrics.lastIntervention = `Preview pollution value ${value}: intervention counters distributed automatically.`;
     updateColorState();
+    syncUpperBridgeRoots();
     updatePollutionMap();
     applyBrightness(false);
     updateMetricMonitor();
@@ -2888,6 +3049,7 @@ document.getElementById("btn-clear-bridge").addEventListener("click", () => {
     activeInterventionStart = 0;
     activeInterventionEnd = 0;
     recoveryActionCount = 0;
+    lastStageOneRecoveryTarget = null;
     updateInterventionState();
     clearAndResetCanvas();
     syncEmpMetrics();
