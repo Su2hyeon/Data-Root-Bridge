@@ -1,17 +1,18 @@
 const COLOR_STAGE_MIN = 1;
 const COLOR_STAGE_MAX = 7;
-const COLOR_STAGE_NORMAL = 4;
-const COLOR_SCORE_RANGE = 7.5;
 
 function colorScoreToStage(score) {
-    const stageOffset = (clamp(score, -COLOR_SCORE_RANGE, COLOR_SCORE_RANGE) / COLOR_SCORE_RANGE) * (COLOR_STAGE_MAX - COLOR_STAGE_NORMAL);
-    return Math.round(clamp(COLOR_STAGE_NORMAL + stageOffset, COLOR_STAGE_MIN, COLOR_STAGE_MAX));
+    if(score <= -7) return 1;
+    if(score <= -4) return 2;
+    if(score <= -2) return 3;
+    if(score < 2) return 4;
+    if(score < 4) return 5;
+    if(score < 7) return 6;
+    return 7;
 }
 
 function getColorScore() {
-    const manualScore = manualInterventionCount();
-    const historicalRecovery = Math.round((1 - getYearProgress()) * 9);
-    return manualScore - historicalRecovery;
+    return manualInterventionCount();
 }
 
 function updateColorState() {
@@ -22,6 +23,8 @@ function updateColorState() {
     lastColorStateKey = colorStateKey;
     lastBrightnessStateKey = "";
     document.documentElement.dataset.colorStage = String(colorStage);
+    // Clear the upper supporting roots as soon as stage 5 is entered.
+    if(colorStage === 5) syncUpperBridgeRoots();
 }
 
 function copySvgComputedStyles(sourceNode, targetNode) {
@@ -167,6 +170,7 @@ function elasticLinkPath(link, offsets) {
 
 function applyElasticPointer() {
     elasticFrame = null;
+    if(zoomingRoots) return;
     if(typeof draggingAnchor !== "undefined" && draggingAnchor) return;
     if(typeof draggingRoot !== "undefined" && draggingRoot) return;
     if(!elasticPointer || typeof nodeLayer === "undefined" || typeof linkLayer === "undefined") return;
@@ -197,9 +201,18 @@ function applyElasticPointer() {
         .attr("d", d => elasticLinkPath(d, offsets));
 }
 
+function resetElasticPointer() {
+    if(elasticFrame !== null) cancelAnimationFrame(elasticFrame);
+    elasticFrame = null;
+    elasticPointer = null;
+    rerenderNodes();
+    rerenderLinks();
+}
+
 function setupElasticPointer() {
     if(typeof svg === "undefined" || typeof currentZoomTransform === "undefined") return;
     svg.on("mousemove.elastic", event => {
+        if(zoomingRoots || event.buttons || draggingAnchor || draggingRoot) return;
         const [screenX, screenY] = d3.pointer(event, svg.node());
         const point = currentZoomTransform.invert([screenX, screenY]);
         elasticPointer = { x: point[0], y: point[1] };
